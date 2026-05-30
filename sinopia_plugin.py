@@ -7,8 +7,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-PLUGIN_DIR = pathlib.Path(__file__).parent
+PLUGIN_DIR   = pathlib.Path(__file__).parent
 BLUECORE_URL = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstrip("/")
+ENVIRONMENT  = os.environ.get("ENVIRONMENT", "")
 
 app = FastAPI(title="Sinopia Linked Data Editor", version="4.0.0")
 app.mount("/static", StaticFiles(directory=str(PLUGIN_DIR / "src" / "static")), name="static")
@@ -63,6 +64,11 @@ async def pyscript_main_py():
 async def editor(request: Request, resource_id: str):
     return templates.TemplateResponse(
         request=request,
-        name="editor.html",
-        context={"resource_id": resource_id, "bluecore_url": BLUECORE_URL},
+        name="index.html",
+        context={
+            "resource_id": resource_id,
+            "bluecore_url": BLUECORE_URL,
+            "environment": ENVIRONMENT,
+            "active_nav": "editor",
+        },
     )
