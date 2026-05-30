@@ -22,32 +22,39 @@ _BF_VOCAB = "http://id.loc.gov/ontologies/bibframe/"
 
 
 def _format_date(iso_str: str) -> str:
-    if not iso_str:
-        return ""
-    try:
-        dt = datetime.fromisoformat(iso_str)
-        return dt.strftime(f"%b {dt.day}, %Y")
-    except ValueError:
-        return iso_str
+    match iso_str:
+        case "":
+            return ""
+        case _:
+            try:
+                dt = datetime.fromisoformat(iso_str)
+                return dt.strftime(f"%b {dt.day}, %Y")
+            except ValueError:
+                return iso_str
 
 
 def _get_label(result: dict) -> str:
     data = result.get("data", {})
-    label = data.get("http://www.w3.org/2000/01/rdf-schema#label")
-    if label:
-        return label
-    titles = data.get("title", [])
-    if titles:
-        first = titles[0]
-        if isinstance(first, dict):
-            return first.get("mainTitle", "")
+    match data.get("http://www.w3.org/2000/01/rdf-schema#label"):
+        case str(label) if label:
+            return label
+    match data.get("title"):
+        case {"mainTitle": str(t)} if t:
+            return t
+        case [{"mainTitle": str(t)}, *_] if t:
+            return t
     return result.get("uri", "")
 
 
 def _get_types(result: dict) -> list[str]:
     data = result.get("data", {})
-    raw = data.get("@type", "")
-    raw_list = [raw] if isinstance(raw, str) else list(raw)
+    match data.get("@type", ""):
+        case str(raw) if raw:
+            raw_list = [raw]
+        case [*items]:
+            raw_list = items
+        case _:
+            raw_list = []
     return [t if t.startswith("http") else _BF_VOCAB + t for t in raw_list if t]
 
 
@@ -130,11 +137,15 @@ async def search(request: Request, q: str = "", source: str = "bluecore"):
     total = 0
     error: str | None = None
 
-    if q and source == "bluecore":
-        url = f"{BLUECORE_URL}/api/search/?q={q}&type=works&limit=20"
+    match source:
+      case "bluecore" if q:
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                resp = await client.get(url, headers={"Accept": "application/json"})
+                resp = await client.get(
+                    f"{BLUECORE_URL}/api/search/",
+                    params={"q": q, "type": "works", "limit": 20},
+                    headers={"Accept": "application/json"},
+                )
                 resp.raise_for_status()
                 data = resp.json()
                 results = _process_results(data.get("results", []))
@@ -143,6 +154,8 @@ async def search(request: Request, q: str = "", source: str = "bluecore"):
                 error = f"Search API error: {exc.response.status_code}"
             except httpx.RequestError as exc:
                 error = f"Search API unreachable: {exc}"
+            except Exception as exc:
+                error = f"Unexpected error: {type(exc).__name__}: {exc}"
 
     return templates.TemplateResponse(
         request=request,

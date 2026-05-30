@@ -40,6 +40,10 @@ class TestGetLabel(unittest.TestCase):
         r = self._r({"title": ["string title"]})
         self.assertEqual(_get_label(r), "https://example.com/works/abc")
 
+    def test_title_as_dict_not_list(self):
+        r = self._r({"title": {"@type": "Title", "mainTitle": "Single Title"}})
+        self.assertEqual(_get_label(r), "Single Title")
+
 
 class TestGetTypes(unittest.TestCase):
     def _r(self, data):
