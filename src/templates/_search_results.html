@@ -55,6 +55,40 @@
       {% endfor %}
     </tbody>
   </table>
+
+  {% if total_pages > 1 %}
+  <nav aria-label="Search pagination">
+    <ul class="pagination mb-1">
+
+      <li class="page-item {% if page == 1 %}disabled{% endif %}">
+        <a class="page-link" href="?q={{ search_q }}&source={{ search_source }}&page=1">&laquo;</a>
+      </li>
+      <li class="page-item {% if page == 1 %}disabled{% endif %}">
+        <a class="page-link" href="?q={{ search_q }}&source={{ search_source }}&page={{ [page - 1, 1]|max }}">&lsaquo;</a>
+      </li>
+
+      {% for p in page_range %}
+        {% if p == '...' %}
+        <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+        {% else %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+          <a class="page-link" href="?q={{ search_q }}&source={{ search_source }}&page={{ p }}">{{ p }}</a>
+        </li>
+        {% endif %}
+      {% endfor %}
+
+      <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+        <a class="page-link" href="?q={{ search_q }}&source={{ search_source }}&page={{ [page + 1, total_pages]|min }}">&rsaquo;</a>
+      </li>
+      <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+        <a class="page-link" href="?q={{ search_q }}&source={{ search_source }}&page={{ total_pages }}">&raquo;</a>
+      </li>
+
+    </ul>
+  </nav>
+  <p class="text-muted small">Displaying {{ first_result }} &ndash; {{ last_result }} of {{ total }}</p>
+  {% endif %}
+
   {% endif %}
 
 </div>

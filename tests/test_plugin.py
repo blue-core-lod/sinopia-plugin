@@ -1,7 +1,7 @@
 """Tests for sinopia_plugin helper functions."""
 import unittest
 
-from sinopia_plugin import _format_date, _get_label, _get_types, _process_results
+from sinopia_plugin import _format_date, _get_label, _get_types, _page_range, _process_results
 
 BF = "http://id.loc.gov/ontologies/bibframe/"
 
@@ -105,6 +105,44 @@ class TestProcessResults(unittest.TestCase):
 
     def test_empty_list(self):
         self.assertEqual(_process_results([]), [])
+
+
+class TestPageRange(unittest.TestCase):
+    def test_few_pages_returns_all(self):
+        self.assertEqual(_page_range(1, 5), [1, 2, 3, 4, 5])
+
+    def test_eight_pages_no_ellipsis(self):
+        self.assertEqual(_page_range(1, 8), [1, 2, 3, 4, 5, 6, 7, 8])
+
+    def test_first_page_of_many(self):
+        pages = _page_range(1, 50)
+        self.assertEqual(pages[0], 1)
+        self.assertIn("...", pages)
+        self.assertEqual(pages[-1], 50)
+        self.assertNotEqual(pages[1], "...")  # no leading ellipsis when starting at page 1
+
+    def test_last_page_of_many(self):
+        pages = _page_range(50, 50)
+        self.assertEqual(pages[0], 1)
+        self.assertIn("...", pages)
+        self.assertEqual(pages[-1], 50)
+
+    def test_middle_page_has_both_ellipses(self):
+        pages = _page_range(25, 50)
+        self.assertEqual(pages[0], 1)
+        self.assertEqual(pages[1], "...")
+        self.assertEqual(pages[-1], 50)
+        self.assertEqual(pages[-2], "...")
+
+    def test_current_page_in_range(self):
+        pages = _page_range(25, 50)
+        self.assertIn(25, pages)
+
+    def test_single_page_returns_one(self):
+        self.assertEqual(_page_range(1, 1), [1])
+
+    def test_zero_pages_returns_empty(self):
+        self.assertEqual(_page_range(1, 0), [])
 
 
 if __name__ == "__main__":

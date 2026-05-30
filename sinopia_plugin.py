@@ -1,3 +1,4 @@
+import math
 import os
 import pathlib
 from datetime import datetime
@@ -19,6 +20,7 @@ templates = Jinja2Templates(directory=str(PLUGIN_DIR / "src" / "templates"))
 
 
 _BF_VOCAB = "http://id.loc.gov/ontologies/bibframe/"
+PAGE_SIZE = 10
 
 
 def _format_date(iso_str: str) -> str:
@@ -56,6 +58,25 @@ def _get_types(result: dict) -> list[str]:
         case _:
             raw_list = []
     return [t if t.startswith("http") else _BF_VOCAB + t for t in raw_list if t]
+
+
+def _page_range(current: int, total_pages: int) -> list:
+    """Return page numbers and '...' sentinels for the paginator."""
+    if total_pages <= 8:
+        return list(range(1, total_pages + 1))
+    window_start = max(1, min(current - 2, total_pages - 5))
+    window_end = min(window_start + 5, total_pages)
+    pages: list = []
+    if window_start > 1:
+        pages.append(1)
+        if window_start > 2:
+            pages.append("...")
+    pages.extend(range(window_start, window_end + 1))
+    if window_end < total_pages:
+        if window_end < total_pages - 1:
+            pages.append("...")
+        pages.append(total_pages)
+    return pages
 
 
 def _process_results(results: list[dict]) -> list[dict]:
@@ -132,30 +153,34 @@ async def load_rdf(request: Request):
 
 
 @app.get("/sinopia/search", response_class=HTMLResponse)
-async def search(request: Request, q: str = "", source: str = "bluecore"):
+async def search(request: Request, q: str = "", source: str = "bluecore", page: int = 1):
     results: list[dict] = []
     total = 0
     error: str | None = None
+    page = max(1, page)
+    offset = (page - 1) * PAGE_SIZE
 
     match source:
-      case "bluecore" if q:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                resp = await client.get(
-                    f"{BLUECORE_URL}/api/search/",
-                    params={"q": q, "type": "works", "limit": 20},
-                    headers={"Accept": "application/json"},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                results = _process_results(data.get("results", []))
-                total = data.get("total", 0)
-            except httpx.HTTPStatusError as exc:
-                error = f"Search API error: {exc.response.status_code}"
-            except httpx.RequestError as exc:
-                error = f"Search API unreachable: {exc}"
-            except Exception as exc:
-                error = f"Unexpected error: {type(exc).__name__}: {exc}"
+        case "bluecore" if q:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                try:
+                    resp = await client.get(
+                        f"{BLUECORE_URL}/api/search/",
+                        params={"q": q, "type": "works", "limit": PAGE_SIZE, "offset": offset},
+                        headers={"Accept": "application/json"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    results = _process_results(data.get("results", []))
+                    total = data.get("total", 0)
+                except httpx.HTTPStatusError as exc:
+                    error = f"Search API error: {exc.response.status_code}"
+                except httpx.RequestError as exc:
+                    error = f"Search API unreachable: {exc}"
+                except Exception as exc:
+                    error = f"Unexpected error: {type(exc).__name__}: {exc}"
+
+    total_pages = math.ceil(total / PAGE_SIZE) if total else 0
 
     return templates.TemplateResponse(
         request=request,
@@ -168,6 +193,11 @@ async def search(request: Request, q: str = "", source: str = "bluecore"):
             "results": results,
             "total": total,
             "error": error,
+            "page": page,
+            "total_pages": total_pages,
+            "page_range": _page_range(page, total_pages),
+            "first_result": offset + 1 if results else 0,
+            "last_result": offset + len(results),
         },
     )
 
