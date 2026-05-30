@@ -28,6 +28,23 @@ def _convert(tsv_text: str) -> str:
     return transformer.graph.serialize(format="turtle")
 
 
+async def view_as_html(filename: str) -> str:
+    """Fetch a DCTAP TSV and return an HTML table via pandas."""
+    import pandas as pd
+
+    resp = await pyfetch(f"/sinopia/api/dctap/tsv?filename={filename}")
+    if not resp.ok:
+        raise RuntimeError(f"HTTP {resp.status} fetching {filename}")
+
+    tsv = await resp.string()
+    df = pd.read_csv(io.StringIO(tsv), sep="\t", dtype=str).fillna("")
+    return df.to_html(
+        classes="table table-sm table-striped table-bordered",
+        index=False,
+        border=0,
+    )
+
+
 async def get_shacl(version: str, filename: str) -> str:
     """Return SHACL Turtle for a DCTAP file.
 

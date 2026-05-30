@@ -51,7 +51,8 @@
         <td style="white-space:nowrap;">
           <a href="#" title="Convert to SHACL" data-filename="{{ t.filename }}"
              class="btn-dctap-shacl me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-file-earmark-plus-fill"></i></a>
-          <a href="#" title="View"         style="color:#1a3a6b;font-size:1.4rem;" class="me-2"><i class="bi bi-eye-fill"></i></a>
+          <a href="#" title="View as table" data-filename="{{ t.filename }}"
+             class="btn-view-template me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-eye-fill"></i></a>
           <a href="#" title="Edit"         style="color:#1a3a6b;font-size:1.4rem;" class="me-2"><i class="bi bi-pencil-fill"></i></a>
           <a href="#" title="Copy"         style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-copy"></i></a>
         </td>
@@ -66,6 +67,24 @@
 
   {% endif %}
 
+</div>
+
+<!-- DataFrame view modal -->
+<div class="modal fade" id="view-modal" tabindex="-1" aria-labelledby="view-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title font-monospace" id="view-modal-label"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="view-output" class="table-responsive" style="font-size:.8rem;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- SHACL output modal -->

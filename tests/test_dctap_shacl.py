@@ -159,6 +159,47 @@ class TestGetShacl(unittest.TestCase):
         self.assertIn("404", str(ctx.exception))
 
 
+# ── dctap_shacl.view_as_html ─────────────────────────────────────────────────
+
+class TestViewAsHtml(unittest.TestCase):
+
+    def test_returns_html_table(self):
+        mock_resp = AsyncMock()
+        mock_resp.ok = True
+        mock_resp.string = AsyncMock(return_value=_SAMPLE_TSV)
+        with patch("dctap_shacl.pyfetch", return_value=mock_resp):
+            result = _run(dctap_shacl.view_as_html("Work.tsv"))
+        self.assertIn("<table", result)
+        self.assertIn("</table>", result)
+
+    def test_html_contains_column_headers(self):
+        mock_resp = AsyncMock()
+        mock_resp.ok = True
+        mock_resp.string = AsyncMock(return_value=_SAMPLE_TSV)
+        with patch("dctap_shacl.pyfetch", return_value=mock_resp):
+            result = _run(dctap_shacl.view_as_html("Work.tsv"))
+        self.assertIn("shapeID", result)
+        self.assertIn("shapeLabel", result)
+
+    def test_html_contains_bootstrap_classes(self):
+        mock_resp = AsyncMock()
+        mock_resp.ok = True
+        mock_resp.string = AsyncMock(return_value=_SAMPLE_TSV)
+        with patch("dctap_shacl.pyfetch", return_value=mock_resp):
+            result = _run(dctap_shacl.view_as_html("Work.tsv"))
+        self.assertIn("table-striped", result)
+        self.assertIn("table-bordered", result)
+
+    def test_raises_on_http_error(self):
+        mock_resp = AsyncMock()
+        mock_resp.ok = False
+        mock_resp.status = 404
+        with patch("dctap_shacl.pyfetch", return_value=mock_resp):
+            with self.assertRaises(RuntimeError) as ctx:
+                _run(dctap_shacl.view_as_html("Missing.tsv"))
+        self.assertIn("404", str(ctx.exception))
+
+
 # ── sinopia.dctap (server-side) ───────────────────────────────────────────────
 
 from sinopia.dctap import _parse_zip, fetch_tsv_content  # noqa: E402

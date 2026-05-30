@@ -4,10 +4,15 @@
 
 {% block head %}
 <meta name="bf-interop-version" content="{{ bf_interop_version }}">
-<script type="py" config='{"packages": ["/static/wheels/rdflib-7.6.0-py3-none-any.whl", "/static/wheels/dctap2shacl-0.2.0-py3-none-any.whl"], "files": {"/sinopia/dctap-shacl.py": "./dctap_shacl.py"}}'>
+<script type="py" config='{"packages": ["/static/wheels/rdflib-7.6.0-py3-none-any.whl", "/static/wheels/dctap2shacl-0.2.0-py3-none-any.whl", "pandas"], "files": {"/sinopia/dctap-shacl.py": "./dctap_shacl.py"}}'>
 import dctap_shacl
 import js
 from pyscript import when
+
+
+def _modal(modal_id: str) -> object:
+    return js.bootstrap.Modal.getOrCreateInstance(js.document.getElementById(modal_id))
+
 
 @when("click", ".btn-dctap-shacl")
 async def on_convert(event):
@@ -19,15 +24,31 @@ async def on_convert(event):
 
     js.document.getElementById("shacl-modal-label").textContent = filename
     js.document.getElementById("shacl-output").textContent = "Loading…"
-    js.bootstrap.Modal.getOrCreateInstance(
-        js.document.getElementById("shacl-modal")
-    ).show()
+    _modal("shacl-modal").show()
 
     try:
         shacl = await dctap_shacl.get_shacl(version, filename)
         js.document.getElementById("shacl-output").textContent = shacl
     except Exception as exc:
         js.document.getElementById("shacl-output").textContent = f"Error: {exc}"
+
+
+@when("click", ".btn-view-template")
+async def on_view(event):
+    el = event.target.closest("[data-filename]")
+    if not el:
+        return
+    filename = el.getAttribute("data-filename")
+
+    js.document.getElementById("view-modal-label").textContent = filename
+    js.document.getElementById("view-output").innerHTML = "<p class='text-muted'>Loading…</p>"
+    _modal("view-modal").show()
+
+    try:
+        html = await dctap_shacl.view_as_html(filename)
+        js.document.getElementById("view-output").innerHTML = html
+    except Exception as exc:
+        js.document.getElementById("view-output").innerHTML = f"<p class='text-danger'>Error: {exc}</p>"
 </script>
 {% endblock %}
 
