@@ -1,7 +1,16 @@
 """Tests for sinopia_plugin helper functions."""
 import unittest
 
-from sinopia_plugin import _format_date, _get_label, _get_types, _page_range, _process_results
+from sinopia_plugin import (
+    _format_date,
+    _get_label,
+    _get_types,
+    _loc_types_from_uri,
+    _page_range,
+    _parse_loc_entry,
+    _parse_loc_feed,
+    _process_results,
+)
 
 BF = "http://id.loc.gov/ontologies/bibframe/"
 
@@ -105,6 +114,107 @@ class TestProcessResults(unittest.TestCase):
 
     def test_empty_list(self):
         self.assertEqual(_process_results([]), [])
+
+
+class TestLocTypesFromUri(unittest.TestCase):
+    def test_work_uri(self):
+        self.assertEqual(_loc_types_from_uri("http://id.loc.gov/resources/works/123"), [BF + "Work"])
+
+    def test_instance_uri(self):
+        self.assertEqual(_loc_types_from_uri("http://id.loc.gov/resources/instances/123"), [BF + "Instance"])
+
+    def test_name_authority(self):
+        result = _loc_types_from_uri("http://id.loc.gov/authorities/names/n123")
+        self.assertIn("http://www.loc.gov/mads/rdf/v1#Authority", result)
+
+    def test_unknown_uri_returns_empty(self):
+        self.assertEqual(_loc_types_from_uri("http://id.loc.gov/vocabulary/relators/aut"), [])
+
+
+class TestParseLocEntry(unittest.TestCase):
+    def _entry(self, title, href, updated="2022-06-03T00:00:00-04:00"):
+        return [
+            "atom:entry",
+            {"xmlns:atom": "http://www.w3.org/2005/Atom"},
+            ["atom:title", {"xmlns:atom": "http://www.w3.org/2005/Atom"}, title],
+            ["atom:link", {"xmlns:atom": "http://www.w3.org/2005/Atom",
+                           "rel": "alternate", "href": href}],
+            ["atom:updated", {"xmlns:atom": "http://www.w3.org/2005/Atom"}, updated],
+        ]
+
+    def test_label_extracted(self):
+        result = _parse_loc_entry(self._entry("Star Wars", "http://id.loc.gov/resources/works/1"))
+        self.assertEqual(result["label"], "Star Wars")
+
+    def test_uri_extracted(self):
+        result = _parse_loc_entry(self._entry("Star Wars", "http://id.loc.gov/resources/works/1"))
+        self.assertEqual(result["uri"], "http://id.loc.gov/resources/works/1")
+
+    def test_group_is_loc(self):
+        result = _parse_loc_entry(self._entry("Star Wars", "http://id.loc.gov/resources/works/1"))
+        self.assertEqual(result["group"], "Library of Congress")
+
+    def test_uuid_is_empty(self):
+        result = _parse_loc_entry(self._entry("Star Wars", "http://id.loc.gov/resources/works/1"))
+        self.assertEqual(result["uuid"], "")
+
+    def test_modified_formatted(self):
+        result = _parse_loc_entry(self._entry("X", "http://id.loc.gov/resources/works/1",
+                                              "2022-06-03T00:00:00-04:00"))
+        self.assertEqual(result["modified"], "Jun 3, 2022")
+
+    def test_no_uri_returns_none(self):
+        entry = ["atom:entry", {}, ["atom:title", {}, "Title"]]
+        self.assertIsNone(_parse_loc_entry(entry))
+
+    def test_typed_link_skipped(self):
+        entry = [
+            "atom:entry", {},
+            ["atom:title", {}, "Title"],
+            ["atom:link", {"rel": "alternate", "type": "application/rdf+xml",
+                           "href": "http://id.loc.gov/resources/works/1.rdf"}],
+        ]
+        self.assertIsNone(_parse_loc_entry(entry))
+
+
+class TestParseLocFeed(unittest.TestCase):
+    def _feed(self, total, entries):
+        return [
+            "atom:feed",
+            {"xmlns:atom": "http://www.w3.org/2005/Atom"},
+            ["opensearch:totalResults", {"xmlns:opensearch": "http://a9.com/-/spec/opensearch/1.1/"}, str(total)],
+        ] + entries
+
+    def _entry(self, title, href):
+        return [
+            "atom:entry", {},
+            ["atom:title", {}, title],
+            ["atom:link", {"rel": "alternate", "href": href}],
+            ["atom:updated", {}, "2022-01-01T00:00:00-04:00"],
+        ]
+
+    def test_total_extracted(self):
+        _, total = _parse_loc_feed(self._feed(354, []))
+        self.assertEqual(total, 354)
+
+    def test_entries_parsed(self):
+        feed = self._feed(1, [self._entry("Star Wars", "http://id.loc.gov/resources/works/1")])
+        results, _ = _parse_loc_feed(feed)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["label"], "Star Wars")
+
+    def test_empty_feed(self):
+        results, total = _parse_loc_feed(self._feed(0, []))
+        self.assertEqual(results, [])
+        self.assertEqual(total, 0)
+
+
+class TestProcessResultsGroup(unittest.TestCase):
+    def test_bluecore_group(self):
+        raw = [{"data": {"@type": "Work"}, "uri": "https://example.com/1",
+                "uuid": "abc", "updated_at": ""}]
+        item = _process_results(raw)[0]
+        self.assertEqual(item["group"], "Blue Core")
 
 
 class TestPageRange(unittest.TestCase):

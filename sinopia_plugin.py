@@ -87,9 +87,69 @@ def _process_results(results: list[dict]) -> list[dict]:
             "uuid": r.get("uuid", ""),
             "types": _get_types(r),
             "modified": _format_date(r.get("updated_at", "")),
+            "group": "Blue Core",
         }
         for r in results
     ]
+
+
+# ─── Library of Congress ────────────────────────────────────────────────────
+
+_LOC_URI_TYPES: dict[str, str] = {
+    "/resources/works/":     _BF_VOCAB + "Work",
+    "/resources/instances/": _BF_VOCAB + "Instance",
+    "/authorities/names/":   "http://www.loc.gov/mads/rdf/v1#Authority",
+    "/authorities/subjects/":"http://www.loc.gov/mads/rdf/v1#Topic",
+}
+
+
+def _loc_types_from_uri(uri: str) -> list[str]:
+    return [t for path, t in _LOC_URI_TYPES.items() if path in uri]
+
+
+def _parse_loc_entry(entry: list) -> dict | None:
+    label = uri = modified = ""
+    for child in entry[2:]:
+        if not isinstance(child, list):
+            continue
+        attrs = child[1] if len(child) > 1 and isinstance(child[1], dict) else {}
+        match child[0]:
+            case "atom:title":
+                label = child[-1] if isinstance(child[-1], str) else ""
+            case "atom:link" if attrs.get("rel") == "alternate" and "type" not in attrs:
+                uri = attrs.get("href", "")
+            case "atom:updated":
+                raw = child[-1] if isinstance(child[-1], str) else ""
+                modified = _format_date(raw[:10]) if raw else ""
+    if not uri:
+        return None
+    return {
+        "label": label,
+        "uri": uri,
+        "uuid": "",
+        "types": _loc_types_from_uri(uri),
+        "modified": modified,
+        "group": "Library of Congress",
+    }
+
+
+def _parse_loc_feed(data: list) -> tuple[list[dict], int]:
+    total = 0
+    results: list[dict] = []
+    for child in data[2:]:
+        if not isinstance(child, list):
+            continue
+        match child[0]:
+            case "opensearch:totalResults":
+                try:
+                    total = int(child[-1])
+                except (ValueError, TypeError):
+                    pass
+            case "atom:entry":
+                entry = _parse_loc_entry(child)
+                if entry:
+                    results.append(entry)
+    return results, total
 
 
 @app.get("/")
@@ -177,6 +237,22 @@ async def search(request: Request, q: str = "", source: str = "bluecore", page: 
                     error = f"Search API error: {exc.response.status_code}"
                 except httpx.RequestError as exc:
                     error = f"Search API unreachable: {exc}"
+                except Exception as exc:
+                    error = f"Unexpected error: {type(exc).__name__}: {exc}"
+        case "loc" if q:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                try:
+                    resp = await client.get(
+                        "https://id.loc.gov/search/",
+                        params={"q": q, "format": "json", "start": offset + 1, "count": PAGE_SIZE},
+                        headers={"Accept": "application/json"},
+                    )
+                    resp.raise_for_status()
+                    results, total = _parse_loc_feed(resp.json())
+                except httpx.HTTPStatusError as exc:
+                    error = f"LoC API error: {exc.response.status_code}"
+                except httpx.RequestError as exc:
+                    error = f"LoC API unreachable: {exc}"
                 except Exception as exc:
                     error = f"Unexpected error: {type(exc).__name__}: {exc}"
 
