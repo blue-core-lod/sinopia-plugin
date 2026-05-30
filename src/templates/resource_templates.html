@@ -14,6 +14,25 @@ def _modal(modal_id: str) -> object:
     return js.bootstrap.Modal.getOrCreateInstance(js.document.getElementById(modal_id))
 
 
+def _mark_loaded_rows():
+    """Highlight rows whose SHACL is already stored in the localStorage template list."""
+    version = js.document.querySelector('meta[name="bf-interop-version"]').getAttribute("content")
+    rows = js.document.querySelectorAll("#rt-table tbody tr")
+    for i in range(rows.length):
+        row = rows.item(i)
+        btn = row.querySelector("[data-filename]")
+        if not btn:
+            continue
+        filename = btn.getAttribute("data-filename")
+        if dctap_shacl.is_in_template_graph(version, filename):
+            row.classList.add("table-success")
+        else:
+            row.classList.remove("table-success")
+
+
+_mark_loaded_rows()
+
+
 @when("click", ".btn-dctap-shacl")
 async def on_convert(event):
     el = event.target.closest("[data-filename]")
@@ -42,6 +61,7 @@ def on_add_to_graph(event):
     count = dctap_shacl.add_to_template_graph(shacl)
     status = js.document.getElementById("shacl-add-status")
     status.textContent = f"Saved — {count} item{'s' if count != 1 else ''} in graph"
+    _mark_loaded_rows()
 
 
 @when("click", ".btn-view-template")

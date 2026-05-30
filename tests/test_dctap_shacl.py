@@ -159,6 +159,44 @@ class TestGetShacl(unittest.TestCase):
         self.assertIn("404", str(ctx.exception))
 
 
+# ── dctap_shacl.is_in_template_graph ─────────────────────────────────────────
+
+class TestIsInTemplateGraph(unittest.TestCase):
+
+    def setUp(self):
+        _mock_js.localStorage.getItem.reset_mock()
+        _mock_js.localStorage.getItem.side_effect = None
+
+    def _setup_storage(self, template_items: list, cached_shacl: str | None):
+        import json
+        def _getitem(key):
+            if key == "template":
+                return json.dumps(template_items) if template_items is not None else None
+            return cached_shacl
+        _mock_js.localStorage.getItem.side_effect = _getitem
+
+    def test_returns_true_when_shacl_in_template(self):
+        self._setup_storage(["@prefix sh: <x> ."], "@prefix sh: <x> .")
+        self.assertTrue(dctap_shacl.is_in_template_graph("v0.3.0", "Work.tsv"))
+
+    def test_returns_false_when_template_empty(self):
+        _mock_js.localStorage.getItem.return_value = None
+        self.assertFalse(dctap_shacl.is_in_template_graph("v0.3.0", "Work.tsv"))
+
+    def test_returns_false_when_shacl_not_cached(self):
+        import json
+        def _getitem(key):
+            if key == "template":
+                return json.dumps(["some shacl"])
+            return None  # no cached shacl for this file
+        _mock_js.localStorage.getItem.side_effect = _getitem
+        self.assertFalse(dctap_shacl.is_in_template_graph("v0.3.0", "Work.tsv"))
+
+    def test_returns_false_when_shacl_not_in_template(self):
+        self._setup_storage(["different shacl"], "@prefix sh: <x> .")
+        self.assertFalse(dctap_shacl.is_in_template_graph("v0.3.0", "Work.tsv"))
+
+
 # ── dctap_shacl.add_to_template_graph ────────────────────────────────────────
 
 class TestAddToTemplateGraph(unittest.TestCase):

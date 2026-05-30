@@ -45,6 +45,18 @@ async def view_as_html(filename: str) -> str:
     )
 
 
+def is_in_template_graph(version: str, filename: str) -> bool:
+    """Return True if the cached SHACL for this file is in the localStorage template list."""
+    import json
+    raw = js.localStorage.getItem("template")
+    if not raw:
+        return False
+    cached = js.localStorage.getItem(_key(version, filename))
+    if not cached:
+        return False
+    return cached in json.loads(raw)
+
+
 def add_to_template_graph(shacl_turtle: str) -> int:
     """Append a SHACL Turtle string to the 'template' list in localStorage.
 
