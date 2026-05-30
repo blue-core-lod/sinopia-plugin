@@ -13,12 +13,14 @@ from fastapi.templating import Jinja2Templates
 from sinopia.bluecore import _page_range, _process_results
 from sinopia.config import (
     _BCLD_HEADERS,
+    BF_INTEROP_VERSION,
     BLUECORE_URL,
     ENVIRONMENT,
     PAGE_SIZE,
     PLUGIN_DIR,
     SINOPIA_VERSION,
 )
+from sinopia.dctap import fetch_templates
 from sinopia.loc import _parse_loc_feed
 from sinopia.rdf import _detect_format, _parse_rdf, _shacl_violations
 
@@ -46,6 +48,28 @@ async def dashboard(request: Request):
             "active_nav": "dashboard",
             "recent_searches": [],
             "sinopia_version": SINOPIA_VERSION,
+        },
+    )
+
+
+@app.get("/sinopia/templates", response_class=HTMLResponse)
+async def resource_templates(request: Request):
+    rt_list: list[dict] = []
+    fetch_error: str | None = None
+    if BF_INTEROP_VERSION:
+        try:
+            rt_list = await fetch_templates(BF_INTEROP_VERSION)
+        except Exception as exc:
+            fetch_error = f"Could not load templates ({BF_INTEROP_VERSION}): {exc}"
+    return templates.TemplateResponse(
+        request=request,
+        name="resource_templates.html",
+        context={
+            "environment":        ENVIRONMENT,
+            "active_nav":         "templates",
+            "templates":          rt_list,
+            "bf_interop_version": BF_INTEROP_VERSION,
+            "fetch_error":        fetch_error,
         },
     )
 
