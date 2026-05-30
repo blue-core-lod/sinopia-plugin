@@ -4,7 +4,9 @@ import pathlib
 from datetime import datetime
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+import pyshacl
+import rdflib
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -21,6 +23,88 @@ templates = Jinja2Templates(directory=str(PLUGIN_DIR / "src" / "templates"))
 
 _BF_VOCAB = "http://id.loc.gov/ontologies/bibframe/"
 PAGE_SIZE = 10
+
+# ─── RDF / SHACL helpers ────────────────────────────────────────────────────
+
+_CONTENT_TYPE_TO_FORMAT: dict[str, str] = {
+    "text/turtle":            "turtle",
+    "application/rdf+xml":   "xml",
+    "application/ld+json":   "json-ld",
+    "text/n3":               "n3",
+    "application/n-triples": "nt",
+    "application/n-quads":   "nquads",
+    "application/trig":      "trig",
+}
+
+_EXT_TO_FORMAT: dict[str, str] = {
+    ".ttl":    "turtle",
+    ".rdf":    "xml",
+    ".jsonld": "json-ld",
+    ".json":   "json-ld",
+    ".n3":     "n3",
+    ".nt":     "nt",
+    ".nq":     "nquads",
+    ".trig":   "trig",
+}
+
+
+def _detect_format(content_type: str, url: str) -> str:
+    """Guess rdflib format string from Content-Type header or URL extension."""
+    for ct, fmt in _CONTENT_TYPE_TO_FORMAT.items():
+        if ct in content_type:
+            return fmt
+    path = url.split("?")[0]
+    for ext, fmt in _EXT_TO_FORMAT.items():
+        if path.endswith(ext):
+            return fmt
+    return "turtle"
+
+
+def _parse_rdf(text: str, base_uri: str, fmt: str) -> tuple[rdflib.Graph, str | None]:
+    """Parse RDF text into a Graph; return (graph, error_message)."""
+    g = rdflib.Graph()
+    try:
+        g.parse(data=text, format=fmt, publicID=base_uri or None)
+        return g, None
+    except Exception as exc:
+        return g, str(exc)
+
+
+_SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+
+
+def _shacl_violations(data_graph: rdflib.Graph, shapes_url: str) -> dict:
+    """Validate data_graph against shapes loaded from shapes_url.
+
+    Returns a dict with keys: conforms (bool|None), violations (list), error (str|None).
+    """
+    shapes_graph = rdflib.Graph()
+    try:
+        shapes_graph.parse(shapes_url)
+    except Exception as exc:
+        return {"conforms": None, "violations": [], "error": f"Could not load shapes: {exc}"}
+    try:
+        conforms, results_graph, _ = pyshacl.validate(
+            data_graph,
+            shacl_graph=shapes_graph,
+            inference="rdfs",
+            abort_on_first=False,
+        )
+        violations = []
+        for report in results_graph.subjects(rdflib.RDF.type, _SH.ValidationResult):
+            severity = results_graph.value(report, _SH.resultSeverity)
+            focus    = results_graph.value(report, _SH.focusNode)
+            path     = results_graph.value(report, _SH.resultPath)
+            message  = results_graph.value(report, _SH.resultMessage)
+            violations.append({
+                "severity":    str(severity).split("#")[-1] if severity else "",
+                "focus_node":  str(focus) if focus else "",
+                "result_path": str(path).split("#")[-1] if path else "",
+                "message":     str(message) if message else "",
+            })
+        return {"conforms": conforms, "violations": violations, "error": None}
+    except Exception as exc:
+        return {"conforms": None, "violations": [], "error": f"Validation error: {exc}"}
 
 
 def _format_date(iso_str: str) -> str:
@@ -208,6 +292,63 @@ async def load_rdf(request: Request):
         context={
             "environment": ENVIRONMENT,
             "active_nav": "actions",
+        },
+    )
+
+
+@app.post("/sinopia/load", response_class=HTMLResponse)
+async def load_rdf_post(
+    request: Request,
+    rdf: str = Form(default=""),
+    base_uri: str = Form(default=""),
+    rdf_url: str = Form(default=""),
+    shapes_url: str = Form(default=""),
+):
+    rdf_content = rdf.strip()
+    rdf_format = "turtle"
+    fetch_error: str | None = None
+
+    if rdf_url and not rdf_content:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.get(
+                    rdf_url,
+                    headers={"Accept": "text/turtle, application/rdf+xml, application/ld+json, */*;q=0.8"},
+                    follow_redirects=True,
+                )
+                resp.raise_for_status()
+                rdf_content = resp.text
+                rdf_format = _detect_format(resp.headers.get("content-type", ""), rdf_url)
+            except httpx.HTTPStatusError as exc:
+                fetch_error = f"HTTP {exc.response.status_code} fetching URL"
+            except httpx.RequestError as exc:
+                fetch_error = f"Could not reach URL: {exc}"
+
+    parse_error: str | None = None
+    triple_count = 0
+    validation: dict | None = None
+
+    if rdf_content and not fetch_error:
+        data_graph, parse_error = _parse_rdf(rdf_content, base_uri.strip(), rdf_format)
+        if not parse_error:
+            triple_count = len(data_graph)
+            if shapes_url.strip():
+                validation = _shacl_violations(data_graph, shapes_url.strip())
+
+    return templates.TemplateResponse(
+        request=request,
+        name="load_rdf.html",
+        context={
+            "environment": ENVIRONMENT,
+            "active_nav": "actions",
+            "rdf":         rdf,
+            "rdf_url":     rdf_url,
+            "base_uri":    base_uri,
+            "shapes_url":  shapes_url,
+            "fetch_error": fetch_error,
+            "parse_error": parse_error,
+            "triple_count": triple_count,
+            "validation":  validation,
         },
     )
 
