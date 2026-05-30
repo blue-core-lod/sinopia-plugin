@@ -455,6 +455,14 @@ async def _entry_point() -> None:
     resource_id = document.getElementById("resource-id-meta").getAttribute("content")
     state = EditorState(resource_id)
     render_tabs()
+
+    if not resource_id:
+        document.getElementById("resource-title").innerHTML = "New Resource"
+        document.getElementById("resource-badge").textContent = "WORK"
+        render_left_nav(state)
+        render_main_editor(state)
+        return
+
     try:
         await state.load()
         render_resource_header(state)

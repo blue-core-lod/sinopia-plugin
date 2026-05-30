@@ -742,6 +742,30 @@ class TestEntryPoint(unittest.TestCase):
 
         self.assertIn("alert-danger", mock_main_el.innerHTML)
 
+    def test_blank_resource_id_skips_fetch(self):
+        resource_id_el = MagicMock()
+        resource_id_el.getAttribute.return_value = ""
+        title_el = MagicMock()
+
+        def _get(eid):
+            if eid == "resource-id-meta":
+                return resource_id_el
+            if eid == "resource-title":
+                return title_el
+            return MagicMock()
+
+        mock_doc = MagicMock()
+        mock_doc.getElementById.side_effect = _get
+        mock_doc.querySelectorAll.return_value = []
+
+        with patch("main.document", mock_doc), \
+             patch("main.when", side_effect=lambda *a, **kw: (lambda f: f)), \
+             patch("main.pyfetch") as mock_fetch:
+            _run(main._entry_point())
+
+        mock_fetch.assert_not_awaited()
+        self.assertIn("New Resource", title_el.innerHTML)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,10 +8,16 @@
 {% endblock %}
 
 {% block content %}
-{% include '_editor.html' %}
+{% if resource_id %}
+  {% include '_editor.html' %}
+{% else %}
+  {% include '_welcome.html' %}
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if resource_id %}
 <!-- ═══════════════════ PYSCRIPT ═══════════════════ -->
 <script type="py" config="./conf.json" src="./src/main.py"></script>
+{% endif %}
 {% endblock %}

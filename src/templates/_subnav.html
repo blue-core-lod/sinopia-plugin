@@ -2,18 +2,27 @@
 <div class="sinopia-subnav d-flex align-items-center justify-content-between">
   <ul class="nav mb-0">
     <li class="nav-item">
-      <a class="nav-link{% if active_nav == 'dashboard' %} active{% endif %}" href="#">Dashboard</a>
+      <a class="nav-link{% if active_nav == 'dashboard' %} active{% endif %}" href="/sinopia/dashboard">Dashboard</a>
     </li>
     <li class="nav-item">
-      <a class="nav-link{% if active_nav == 'editor' %} active{% endif %}" href="#">Editor</a>
+      <a class="nav-link{% if active_nav == 'editor' %} active{% endif %}" href="/sinopia/editor">Editor</a>
     </li>
     <li class="nav-item">
       <a class="nav-link{% if active_nav == 'templates' %} active{% endif %}" href="#">Resource Templates</a>
     </li>
-    <li class="nav-item">
-      <a class="nav-link{% if active_nav == 'actions' %} active{% endif %}" href="#">
-        Actions <i class="bi bi-chevron-down" style="font-size:.7rem;"></i>
+    <li class="nav-item dropdown">
+      <a class="nav-link dropdown-toggle{% if active_nav == 'actions' %} active{% endif %}"
+         href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+        Actions
       </a>
+      <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="/sinopia/load">Load RDF</a></li>
+        <li><a class="dropdown-item" href="#">Exports</a></li>
+        <li><a class="dropdown-item" href="#">View metrics</a></li>
+        <li><a class="dropdown-item" href="#">Resources</a></li>
+        <li><a class="dropdown-item" href="#">Templates</a></li>
+        <li><a class="dropdown-item" href="#">Users</a></li>
+      </ul>
     </li>
   </ul>
   {% include '_search.html' %}

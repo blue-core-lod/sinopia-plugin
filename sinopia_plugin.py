@@ -7,9 +7,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-PLUGIN_DIR   = pathlib.Path(__file__).parent
-BLUECORE_URL = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstrip("/")
-ENVIRONMENT  = os.environ.get("ENVIRONMENT", "")
+PLUGIN_DIR       = pathlib.Path(__file__).parent
+BLUECORE_URL     = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstrip("/")
+ENVIRONMENT      = os.environ.get("ENVIRONMENT", "")
+SINOPIA_VERSION  = os.environ.get("SINOPIA_VERSION", "4.0.0")
 
 app = FastAPI(title="Sinopia Linked Data Editor", version="4.0.0")
 app.mount("/static", StaticFiles(directory=str(PLUGIN_DIR / "src" / "static")), name="static")
@@ -23,6 +24,20 @@ async def root():
         "version": "4.0.0",
         "bluecore_url": BLUECORE_URL,
     }
+
+
+@app.get("/sinopia/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "environment": ENVIRONMENT,
+            "active_nav": "dashboard",
+            "recent_searches": [],
+            "sinopia_version": SINOPIA_VERSION,
+        },
+    )
 
 
 @app.get("/sinopia/api/resource/{resource_id}")
@@ -48,6 +63,33 @@ async def proxy_resource(resource_id: str):
             )
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=f"BCLD API unreachable: {exc}")
+
+
+@app.get("/sinopia/load", response_class=HTMLResponse)
+async def load_rdf(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="load_rdf.html",
+        context={
+            "environment": ENVIRONMENT,
+            "active_nav": "actions",
+        },
+    )
+
+
+@app.get("/sinopia/editor", response_class=HTMLResponse)
+async def editor_new(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "resource_id": "",
+            "bluecore_url": BLUECORE_URL,
+            "environment": ENVIRONMENT,
+            "active_nav": "editor",
+            "sinopia_version": SINOPIA_VERSION,
+        },
+    )
 
 
 @app.get("/sinopia/editor/conf.json")

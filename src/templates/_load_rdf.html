@@ -1,0 +1,36 @@
+<!-- ═══════════════════ LOAD RDF ═══════════════════ -->
+<div class="container-fluid px-4 pt-4">
+
+  <h4 class="mb-1">Load RDF into Editor</h4>
+  <p class="text-muted mb-2" style="font-size:.9rem;">
+    RDF (Accepts JSON-LD, Turtle, TriG, N-Triples, N-Quads, and Notation3 (N3))
+  </p>
+
+  <form method="post" action="/sinopia/load">
+    <!-- RDF input -->
+    <div class="mb-3">
+      <textarea class="form-control font-monospace" id="rdf-input" name="rdf"
+                rows="15" style="font-size:.82rem; resize:vertical;"
+                placeholder="For example:
+<> <http://id.loc.gov/ontologies/bibframe/mainTitle> &quot;Tractatus Logico-Philosophicus&quot;@eng .
+<> <http://sinopia.io/vocabulary/hasResourceTemplate> &quot;resourceTemplate:bf2:WorkTitle&quot; .
+<> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Title> ."></textarea>
+    </div>
+
+    <!-- Base URI -->
+    <div class="mb-2">
+      <label for="base-uri" class="form-label mb-1" style="font-size:.9rem;">
+        Base URI (Omit brackets. If base URI is &lt;&gt;, leave blank.)
+      </label>
+      <input type="text" class="form-control" id="base-uri" name="base_uri"
+             placeholder="For example: https://api.sinopia.io/resource/e111a712-5a45-4c2a-9201-289b98d7452e.">
+    </div>
+
+    <p class="text-muted mb-3" style="font-size:.9rem;">
+      Clicking &ldquo;Submit&rdquo; will create a new resource that can be saved in Sinopia.
+    </p>
+
+    <button type="submit" class="btn btn-secondary">Submit</button>
+  </form>
+
+</div>
