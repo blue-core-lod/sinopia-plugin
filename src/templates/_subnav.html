@@ -1,6 +1,6 @@
 <!-- ═══════════════════ SUB-NAV ═══════════════════ -->
-<div class="sinopia-subnav">
-  <ul class="nav">
+<div class="sinopia-subnav d-flex align-items-center justify-content-between">
+  <ul class="nav mb-0">
     <li class="nav-item">
       <a class="nav-link{% if active_nav == 'dashboard' %} active{% endif %}" href="#">Dashboard</a>
     </li>
@@ -16,4 +16,5 @@
       </a>
     </li>
   </ul>
+  {% include '_search.html' %}
 </div>

@@ -17,7 +17,7 @@ body { font-size: 14px; background: #fff; }
 /* ── Sub-nav ── */
 .sinopia-subnav {
   border-bottom: 1px solid #dee2e6;
-  padding: 0 16px;
+  padding: 0 16px 0 0;
   background: #fff;
 }
 .sinopia-subnav .nav-link {

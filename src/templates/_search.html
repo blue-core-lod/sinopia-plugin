@@ -1,0 +1,23 @@
+<!-- ═══════════════════ SEARCH ═══════════════════ -->
+<div class="d-flex align-items-center gap-2">
+  <span class="fw-semibold small">
+    Search
+    <button class="btn btn-link btn-sm p-0 ms-1" title="Search help">
+      <i class="bi bi-info-circle-fill text-dark" style="font-size:.9rem;"></i>
+    </button>
+  </span>
+
+  <select class="form-select form-select-sm" id="search-source" style="width:140px;">
+    <option value="sinopia" selected>Sinopia</option>
+    <option value="loc">Library of Congress</option>
+    <option value="worldcat">WorldCat</option>
+  </select>
+
+  <div class="input-group" style="width:340px;">
+    <input type="text" id="search-input" class="form-control form-control-sm"
+           placeholder="" aria-label="Search">
+    <button class="btn btn-outline-secondary btn-sm" type="button" id="search-btn">
+      <i class="bi bi-search"></i>
+    </button>
+  </div>
+</div>
