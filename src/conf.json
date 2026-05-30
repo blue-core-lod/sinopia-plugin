@@ -1,6 +1,7 @@
 {
   "terminal": false,
   "packages": [
+    "jinja2",
     "/static/wheels/rdflib-7.6.0-py3-none-any.whl",
     "/static/wheels/pyshacl-0.31.0-py3-none-any.whl",
     "/static/wheels/dctap2shacl-0.2.0-py3-none-any.whl"

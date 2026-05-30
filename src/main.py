@@ -14,17 +14,109 @@ from pyscript import document, when
 from pyodide.http import pyfetch
 import js
 
+try:
+    from jinja2 import Template
+except ImportError:
+    Template = None
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-BF   = "http://id.loc.gov/ontologies/bibframe/"
-BFLC = "http://id.loc.gov/ontologies/bflc/"
-RDFS = "http://www.w3.org/2000/01/rdf-schema#"
+BF   = rdflib.Namespace("http://id.loc.gov/ontologies/bibframe/")
+BFLC = rdflib.Namespace("http://id.loc.gov/ontologies/bflc/")
+MADS = rdflib.Namespace("http://www.loc.gov/mads/rdf/v1#")
 SH   = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+
+_ENHANCEMENT_NAMESPACES = [BF, BFLC, MADS]
 
 WORK_NAV = []  # SHACL shapes drive the editor; kept for test compatibility.
 
 # JSON-LD predicates that are display metadata only — not editable content.
 _DISPLAY_SKIP = frozenset({"label"})
+
+# ── Jinja2 Templates ───────────────────────────────────────────────────────────
+
+TEMPLATE_PROP_CARD = Template("""<div class="prop-card"
+     id="{{ card_id }}"{% if shape_uri %} data-rdf-shape="{{ shape_uri }}"{% endif %}{% if target_class %} data-rdf-class="{{ target_class }}"{% endif %}
+     data-rdf-subject="{{ resource_uri }}">
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <strong class="small">{{ title }}</strong>
+    <button class="btn btn-link btn-sm p-0 text-secondary">
+      <i class="bi bi-trash icon-btn"></i>
+    </button>
+  </div>
+  {{ content }}
+</div>""") if Template else None
+
+TEMPLATE_LITERAL_INPUT = Template("""<div class="input-card mb-3"
+     id="{{ input_id }}"
+     data-rdf-path="{{ path }}">
+  <div class="d-flex justify-content-between align-items-center mb-1">
+    <span class="small fw-semibold">{{ name }} {{ star }}{{ badge }}</span>
+    <button class="btn btn-link btn-sm p-0 text-secondary">
+      <i class="bi bi-trash icon-btn"></i>
+    </button>
+  </div>
+  {{ meta }}
+  <div class="small text-muted mb-2">{{ prompt }}</div>
+  <div class="d-flex align-items-start gap-2">
+    <textarea class="form-control form-control-sm" rows="2"
+              id="{{ textarea_id }}"
+              data-field="{{ textarea_id }}"
+              data-rdf-path="{{ path }}">{{ value }}</textarea>
+    <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
+      <button class="btn btn-sm btn-outline-secondary" title="Diacritics">ä</button>
+      <small class="text-muted text-center" style="white-space:nowrap;font-size:.72rem;">
+        No language<br>specified
+      </small>
+      <button class="btn btn-link btn-sm p-0 text-secondary">
+        <i class="bi bi-trash icon-btn"></i>
+      </button>
+    </div>
+  </div>
+  <div class="mt-1"><a href="#" class="add-link text-primary text-decoration-none d-block mb-1">+ Add {{ name }}</a></div>
+</div>""") if Template else None
+
+TEMPLATE_URI_INPUT = Template("""<div class="input-card mb-3"
+     id="{{ input_id }}"
+     data-rdf-path="{{ path }}">
+  <div class="d-flex justify-content-between align-items-center mb-1">
+    <span class="small fw-semibold">{{ name }} {{ star }}{{ badge }}</span>
+    <button class="btn btn-link btn-sm p-0 text-secondary">
+      <i class="bi bi-trash icon-btn"></i>
+    </button>
+  </div>
+  {{ meta }}
+  <div class="d-flex align-items-start gap-2 mb-2">
+    <span class="small text-muted pt-1 me-1" style="min-width:2.5rem;">URI</span>
+    <textarea class="form-control form-control-sm" rows="2"
+              id="{{ uri_id }}"
+              data-field="{{ uri_id }}"
+              data-rdf-path="{{ path }}">{{ uri_value }}</textarea>
+    <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
+      {% if uri_value %}<a href="{{ uri_value }}" target="_blank" rel="noopener" class="btn btn-link btn-sm p-0"><i class="bi bi-box-arrow-up-right"></i></a>{% endif %}
+      <button class="btn btn-link btn-sm p-0 text-secondary">
+        <i class="bi bi-trash icon-btn"></i>
+      </button>
+    </div>
+  </div>
+  <div class="d-flex align-items-start gap-2">
+    <span class="small text-muted pt-1 me-1" style="min-width:2.5rem;">Label</span>
+    <textarea class="form-control form-control-sm" rows="2"
+              id="{{ label_id }}"
+              data-field="{{ label_id }}"
+              data-rdf-path="{{ rdfs_label }}">{{ label_value }}</textarea>
+    <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
+      <button class="btn btn-sm btn-outline-secondary" title="Diacritics">ä</button>
+      <small class="text-muted text-center" style="white-space:nowrap;font-size:.72rem;">
+        No language<br>specified
+      </small>
+      <button class="btn btn-link btn-sm p-0 text-secondary">
+        <i class="bi bi-trash icon-btn"></i>
+      </button>
+    </div>
+  </div>
+  <div class="mt-1"><a href="#" class="add-link text-primary text-decoration-none d-block mb-1">+ Add {{ name }}</a></div>
+</div>""") if Template else None
 
 
 # ── State ──────────────────────────────────────────────────────────────────────
@@ -40,6 +132,7 @@ class EditorState:
         self.raw_data: dict = {}
         self.triples: list = []    # [(subject, predicate, object_str)]
         self.props: dict = {}      # predicate -> [value_str, ...]
+        self.labels: dict = {}     # URI -> rdfs:label string (inline labels only)
         self.field_edits: dict = {}
         self.expanded_sections: set = set()
 
@@ -76,7 +169,7 @@ class EditorState:
         types = data.get("@type", [])
         self.resource_types = [types] if isinstance(types, str) else list(types)
 
-        for key in [f"{RDFS}label", "rdfs:label"]:
+        for key in [f"{rdflib.RDFS}label", "rdfs:label"]:
             if key in data:
                 self.resource_label = self._literal(data[key])
                 break
@@ -98,6 +191,15 @@ class EditorState:
                     node_id = v.get("@id", "")
                     if not node_id or node_id.startswith("_:"):
                         self._extract_props(v, subject, skip)
+                    elif node_id:
+                        # Real URI node — capture its inline rdfs:label if present.
+                        for lk in (f"{rdflib.RDFS}label", "rdfs:label", "label"):
+                            if lk in v:
+                                lv = v[lk]
+                                if isinstance(lv, list):
+                                    lv = lv[0]
+                                self.labels[node_id] = self._literal(lv)
+                                break
 
     @staticmethod
     def _literal(val) -> str:
@@ -124,7 +226,7 @@ class EditorState:
 
 # ── SHACL helpers ──────────────────────────────────────────────────────────────
 
-class PropShape:
+class PropShape(object):
     """Descriptor for a single sh:PropertyShape extracted from a SHACL graph."""
     __slots__ = ("path", "name", "required", "value_class", "datatype", "description", "order")
 
@@ -154,6 +256,58 @@ def _load_shacl_graph() -> rdflib.Graph:
     except Exception:
         pass
     return g
+
+
+def _enhance_shacl_with_resource_props(shacl: rdflib.Graph, state: "EditorState") -> rdflib.Graph:
+    """Add missing vocabulary properties from the resource to their corresponding SHACL shapes.
+
+    For each NodeShape, finds all properties from configured namespaces (bf, bflc, mads)
+    in the resource that aren't already in the shape and adds them as optional properties.
+    """
+    # Get all properties from enhancement namespaces that exist in the resource
+    resource_props_by_ns = {
+        str(ns): {p for p in state.props if p.startswith(str(ns))}
+        for ns in _ENHANCEMENT_NAMESPACES
+    }
+
+    # For each shape, add missing properties from enhancement namespaces
+    for shape in _all_shapes(shacl):
+        target_class = shacl.value(shape, SH.targetClass)
+        if not target_class:
+            continue
+
+        # Get existing property paths in this shape
+        existing_paths = {
+            shacl.value(prop, SH.path)
+            for prop in shacl.objects(shape, SH.property)
+            if shacl.value(prop, SH.path)
+        }
+
+        # Calculate next order number
+        next_order = max(
+            (int(str(shacl.value(prop, SH.order)))
+             for prop in shacl.objects(shape, SH.property)
+             if shacl.value(prop, SH.order)),
+            default=0
+        ) + 1
+
+        # Add missing properties from all enhancement namespaces
+        for ns_uri, props_in_resource in resource_props_by_ns.items():
+            for prop_path in sorted(props_in_resource):
+                prop_uri = rdflib.URIRef(prop_path)
+                if prop_uri not in existing_paths:
+                    prop_shape = rdflib.BNode()
+                    shacl.add((shape, SH.property, prop_shape))
+                    shacl.add((prop_shape, SH.path, prop_uri))
+                    # Extract property name from URI
+                    prop_name = prop_path.split("/")[-1].split("#")[-1]
+                    shacl.add((prop_shape, SH.name, rdflib.Literal(prop_name)))
+                    shacl.add((prop_shape, SH.minCount, rdflib.Literal(0)))
+                    shacl.add((prop_shape, SH.order, rdflib.Literal(next_order)))
+                    next_order += 1
+                    existing_paths.add(prop_uri)
+
+    return shacl
 
 
 def _shapes_for_types(shacl: rdflib.Graph, type_uris: list) -> list:
@@ -344,7 +498,7 @@ _SEVERITY_BADGE = {
 }
 
 
-class PropCardFactory:
+class PropCardFactory(object):
     """Builds prop-card HTML from SHACL shapes or raw RDF properties.
 
     Hierarchy
@@ -360,6 +514,7 @@ class PropCardFactory:
 
     def __init__(self, state: EditorState):
         self._state = state
+        # js.console(f"In prop_card factory, state is {self._state}")
 
     # ── NodeShape → prop-card ──────────────────────────────────────────────────
 
@@ -391,16 +546,31 @@ class PropCardFactory:
         viol_by_path = {v["path"]: v["severity"] for v in violations}
 
         input_cards = []
+        has_required = False
         for ps in prop_shapes:
+            if ps.required:
+                has_required = True
             values   = _values_for_path(self._state, ps.path)
             severity = viol_by_path.get(ps.path, "")
             if not ps.required and not values and not severity:
                 continue
             input_cards.extend(self._property_input_cards(ps, values, severity))
 
-        if not input_cards:
+        # Show card if it has content or if shape has required properties
+        if not input_cards and not has_required:
             return ""
 
+        if TEMPLATE_PROP_CARD:
+            return TEMPLATE_PROP_CARD.render(
+                card_id=card_id,
+                shape_uri=shape_uri or "",
+                target_class=target_class or "",
+                resource_uri=self._state.resource_uri,
+                title=shape_name,
+                content="".join(input_cards)
+            )
+
+        # Fallback for when jinja2 is not available
         shape_attr = f'\n     data-rdf-shape="{shape_uri}"'  if shape_uri    else ""
         class_attr = f'\n     data-rdf-class="{target_class}"' if target_class else ""
 
@@ -431,19 +601,23 @@ class PropCardFactory:
         # Required or violation with no value → blank card for user to fill.
         return [self._input_card_html(ps, 0, "", severity)]
 
+    @staticmethod
+    def _is_uri(value: str, ps: PropShape) -> bool:
+        """True when the value should be displayed as a URI reference."""
+        return bool(ps.value_class) or value.startswith(("http://", "https://"))
+
     def _input_card_html(
         self, ps: PropShape, idx: int, value: str, severity: str = ""
     ) -> str:
-        """Build a single ``div.input-card`` with stable RDF-resolvable IDs."""
-        input_id  = f"inputcard-{_sid(ps.name)}-{idx}"
-        textarea_id = f"{input_id}-value"
-        safe_val  = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        frag      = ps.path.split("/")[-1].split("#")[-1]
-        prompt    = ps.description or ("Enter a URI" if ps.value_class else "Enter a literal")
-        star      = '<span class="text-danger">*</span>' if ps.required and idx == 0 else ""
-        badge     = _SEVERITY_BADGE.get(severity, "")
+        """Dispatch to URI widget or literal widget based on the value type."""
+        if self._is_uri(value, ps):
+            return self._uri_input_card_html(ps, idx, value, severity)
+        return self._literal_input_card_html(ps, idx, value, severity)
 
-        meta = (
+    def _card_header(self, ps: PropShape, idx: int, severity: str) -> str:
+        star  = '<span class="text-danger">*</span>' if ps.required and idx == 0 else ""
+        badge = _SEVERITY_BADGE.get(severity, "")
+        meta  = (
             f'<div class="small text-muted mb-1">'
             f'Property: <span class="font-monospace">{ps.path}</span></div>'
         )
@@ -457,7 +631,96 @@ class PropCardFactory:
                 f'<div class="small text-muted mb-1">'
                 f'Datatype: <span class="font-monospace">{ps.datatype}</span></div>'
             )
+        return star, badge, meta
 
+    def _uri_input_card_html(
+        self, ps: PropShape, idx: int, uri_value: str, severity: str = ""
+    ) -> str:
+        """URI + Label two-row widget for class-valued or URI-valued properties."""
+        input_id  = f"inputcard-{_sid(ps.name)}-{idx}"
+        uri_id    = f"{input_id}-uri"
+        label_id  = f"{input_id}-label"
+        star, badge, meta = self._card_header(ps, idx, severity)
+        safe_uri  = uri_value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        label_val = self._state.labels.get(uri_value, "")
+
+        if TEMPLATE_URI_INPUT:
+            return TEMPLATE_URI_INPUT.render(
+                input_id=input_id, uri_id=uri_id, label_id=label_id,
+                path=ps.path, name=ps.name, star=star, badge=badge, meta=meta,
+                uri_value=safe_uri, label_value=label_val, rdfs_label=f"{rdflib.RDFS}label"
+            )
+
+        # Fallback for when jinja2 is not available
+        ext_link = ""
+        if uri_value:
+            ext_link = (
+                f'<a href="{safe_uri}" target="_blank" rel="noopener"'
+                f' class="btn btn-link btn-sm p-0">'
+                f'<i class="bi bi-box-arrow-up-right"></i></a>'
+            )
+
+        return f"""
+<div class="input-card mb-3"
+     id="{input_id}"
+     data-rdf-path="{ps.path}">
+  <div class="d-flex justify-content-between align-items-center mb-1">
+    <span class="small fw-semibold">{ps.name} {star}{badge}</span>
+    <button class="btn btn-link btn-sm p-0 text-secondary">
+      <i class="bi bi-trash icon-btn"></i>
+    </button>
+  </div>
+  {meta}
+  <div class="d-flex align-items-start gap-2 mb-2">
+    <span class="small text-muted pt-1 me-1" style="min-width:2.5rem;">URI</span>
+    <textarea class="form-control form-control-sm" rows="2"
+              id="{uri_id}"
+              data-field="{uri_id}"
+              data-rdf-path="{ps.path}">{safe_uri}</textarea>
+    <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
+      {ext_link}
+      <button class="btn btn-link btn-sm p-0 text-secondary">
+        <i class="bi bi-trash icon-btn"></i>
+      </button>
+    </div>
+  </div>
+  <div class="d-flex align-items-start gap-2">
+    <span class="small text-muted pt-1 me-1" style="min-width:2.5rem;">Label</span>
+    <textarea class="form-control form-control-sm" rows="2"
+              id="{label_id}"
+              data-field="{label_id}"
+              data-rdf-path="{rdflib.RDFS}label">{label_val}</textarea>
+    <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
+      <button class="btn btn-sm btn-outline-secondary" title="Diacritics">ä</button>
+      <small class="text-muted text-center" style="white-space:nowrap;font-size:.72rem;">
+        No language<br>specified
+      </small>
+      <button class="btn btn-link btn-sm p-0 text-secondary">
+        <i class="bi bi-trash icon-btn"></i>
+      </button>
+    </div>
+  </div>
+  <div class="mt-1">{_add_link(ps.name)}</div>
+</div>"""
+
+    def _literal_input_card_html(
+        self, ps: PropShape, idx: int, value: str, severity: str = ""
+    ) -> str:
+        """Single-textarea widget for literal-valued properties."""
+        input_id    = f"inputcard-{_sid(ps.name)}-{idx}"
+        textarea_id = f"{input_id}-value"
+        star, badge, meta = self._card_header(ps, idx, severity)
+        safe_val    = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        prompt      = ps.description or "Enter a literal"
+
+        if TEMPLATE_LITERAL_INPUT:
+            return TEMPLATE_LITERAL_INPUT.render(
+                input_id=input_id, textarea_id=textarea_id, path=ps.path,
+                name=ps.name, star=star, badge=badge, meta=meta,
+                prompt=prompt, value=safe_val
+            )
+
+        # Fallback for when jinja2 is not available
         return f"""
 <div class="input-card mb-3"
      id="{input_id}"
@@ -521,6 +784,67 @@ class PropCardFactory:
      data-rdf-subject="{self._state.resource_uri}">
   <div class="d-flex justify-content-between align-items-start mb-3">
     <strong class="small">{self._state.resource_name()}</strong>
+    <button class="btn btn-link btn-sm p-0 text-secondary">
+      <i class="bi bi-trash icon-btn"></i>
+    </button>
+  </div>
+  {"".join(inputs)}
+</div>"""
+
+    def build_fallback_card_excluding(self, excluded_paths: set) -> str:
+        """Build a prop-card for unhandled properties not in excluded_paths.
+
+        Used in SHACL mode to show properties not covered by loaded shapes.
+        Returns an empty string when there are no unhandled displayable properties.
+        """
+        def _is_excluded(pred: str) -> bool:
+            """Check if pred matches any excluded path (handles URI variations)."""
+            if pred in excluded_paths:
+                return True
+            pred_frag = pred.split("/")[-1].split("#")[-1]
+            for excl_path in excluded_paths:
+                excl_frag = excl_path.split("/")[-1].split("#")[-1]
+                if excl_frag == pred_frag:
+                    return True
+            return False
+
+        card_id = f"propcard-unhandled"
+        shown   = set(_DISPLAY_SKIP)
+        inputs  = []
+
+        for pred, vals in self._state.props.items():
+            if _is_excluded(pred):
+                continue
+            frag = pred.split("/")[-1].split("#")[-1]
+            leaf_vals = [v for v in vals if not (v.startswith("{") or v.startswith("["))]
+            if not leaf_vals or frag in shown:
+                continue
+            shown.add(frag)
+            ps = PropShape(
+                path=pred, name=frag, required=False,
+                value_class="", datatype="", description="", order=999,
+            )
+            inputs.extend(self._property_input_cards(ps, leaf_vals))
+
+        if not inputs:
+            return ""
+
+        if TEMPLATE_PROP_CARD:
+            return TEMPLATE_PROP_CARD.render(
+                card_id=card_id,
+                shape_uri="",
+                target_class="",
+                resource_uri=self._state.resource_uri,
+                title="Other Properties",
+                content="".join(inputs)
+            )
+
+        return f"""
+<div class="prop-card"
+     id="{card_id}"
+     data-rdf-subject="{self._state.resource_uri}">
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <strong class="small">Other Properties</strong>
     <button class="btn btn-link btn-sm p-0 text-secondary">
       <i class="bi bi-trash icon-btn"></i>
     </button>
@@ -633,6 +957,8 @@ def render_main_editor(state: EditorState) -> None:
     After building the normal cards, SHACL validation is run and any violated
     PropertyShape paths that are not yet shown are added (with a severity badge).
 
+    Unhandled properties (not in any SHACL shape) are rendered in a fallback card.
+
     Fallback mode
     -------------
     A single generic ``div.prop-card`` holding one ``div.input-card`` per
@@ -642,23 +968,34 @@ def render_main_editor(state: EditorState) -> None:
     shacl     = _load_shacl_graph()
     all_nodes = _all_shapes(shacl)
 
+    sections = []
+    handled_paths = set()  # Track which property paths are handled by SHACL
+
     if all_nodes:
         # SHACL mode: one prop-card per NodeShape — all shapes in the template.
         violations = _validate(state, shacl)
-        sections   = []
         for shape in all_nodes:
             shape_name   = _shape_label(shacl, shape)
             shape_uri    = str(shape) if isinstance(shape, rdflib.URIRef) else ""
             target_class = str(shacl.value(shape, SH.targetClass) or "")
+            prop_shapes = _prop_shapes(shacl, shape)
+            # Track which paths are handled by this shape
+            for ps in prop_shapes:
+                handled_paths.add(ps.path)
             card = factory.build_node_card(
                 shape_name,
-                _prop_shapes(shacl, shape),
+                prop_shapes,
                 violations,
                 shape_uri=shape_uri,
                 target_class=target_class,
             )
             if card:
                 sections.append(card)
+
+        # Add fallback card for any unhandled properties
+        fallback = factory.build_fallback_card_excluding(handled_paths)
+        if fallback:
+            sections.append(fallback)
     else:
         card = factory.build_fallback_card()
         sections = [card] if card else []

@@ -59,6 +59,7 @@ class TestEditorStateInit(unittest.TestCase):
         self.assertEqual(s.raw_data, {})
         self.assertEqual(s.triples, [])
         self.assertEqual(s.props, {})
+        self.assertEqual(s.labels, {})
         self.assertEqual(s.field_edits, {})
 
 
@@ -157,6 +158,48 @@ class TestParse(unittest.TestCase):
         s = main.EditorState("w3")
         s._parse(data)
         self.assertNotIn("http://www.w3.org/2000/01/rdf-schema#label", s.props)
+
+
+# ── EditorState.labels (inline label capture) ─────────────────────────────────
+
+class TestInlineLabels(unittest.TestCase):
+
+    def test_inline_label_captured(self):
+        """rdfs:label on a URI-referenced node should be stored in state.labels."""
+        data = {
+            "@id":   "https://dev.bcld.info/works/w1",
+            "@type": [BF + "Work"],
+            BF + "language": [{
+                "@id": "http://id.loc.gov/vocabulary/languages/doi",
+                "http://www.w3.org/2000/01/rdf-schema#label": [{"@value": "Dogri"}],
+            }],
+        }
+        s = main.EditorState("w1")
+        s._parse(data)
+        self.assertEqual(s.labels.get("http://id.loc.gov/vocabulary/languages/doi"), "Dogri")
+
+    def test_no_label_no_entry(self):
+        data = {
+            "@id":   "https://dev.bcld.info/works/w2",
+            "@type": [BF + "Work"],
+            BF + "language": [{"@id": "http://id.loc.gov/vocabulary/languages/eng"}],
+        }
+        s = main.EditorState("w2")
+        s._parse(data)
+        self.assertNotIn("http://id.loc.gov/vocabulary/languages/eng", s.labels)
+
+    def test_compact_label_key_captured(self):
+        data = {
+            "@id":   "https://dev.bcld.info/works/w3",
+            "@type": [BF + "Work"],
+            BF + "language": [{
+                "@id":   "http://id.loc.gov/vocabulary/languages/fre",
+                "rdfs:label": "French",
+            }],
+        }
+        s = main.EditorState("w3")
+        s._parse(data)
+        self.assertEqual(s.labels.get("http://id.loc.gov/vocabulary/languages/fre"), "French")
 
 
 # ── EditorState.type_short / resource_name / has_prop ─────────────────────────
@@ -485,6 +528,104 @@ class TestPropCardFactory(unittest.TestCase):
         ps      = _ps(BF + "language", "Language")
         html    = factory.build_node_card("Work", [ps])
         self.assertIn("eng", html)
+
+
+# ── URI input-card widget ─────────────────────────────────────────────────────
+
+class TestUriInputCard(unittest.TestCase):
+    """PropCardFactory uses the URI+Label widget when ps.value_class is set
+    or when the existing value is a URL string."""
+
+    def _factory(self, **props):
+        state = _make_state(props=props, resource_uri="https://example.com/w/1")
+        return main.PropCardFactory(state)
+
+    def _ps_uri(self, path, name, value_class=BF + "Language", required=False):
+        return _ps(path, name, required=required, value_class=value_class)
+
+    # ── dispatch ──────────────────────────────────────────────────────────────
+
+    def test_value_class_triggers_uri_widget(self):
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/eng"]})
+        ps   = self._ps_uri(BF + "language", "Language")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn('id="inputcard-language-0-uri"', html)
+        self.assertIn('id="inputcard-language-0-label"', html)
+
+    def test_http_value_without_class_triggers_uri_widget(self):
+        # Even without sh:value_class, a value starting with http:// → URI widget
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/eng"]})
+        ps   = _ps(BF + "language", "Language", value_class="")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn('id="inputcard-language-0-uri"', html)
+
+    def test_literal_value_uses_literal_widget(self):
+        factory = self._factory(**{BF + "note": ["A plain note"]})
+        ps   = _ps(BF + "note", "Note")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn('id="inputcard-note-0-value"', html)
+        self.assertNotIn('id="inputcard-note-0-uri"', html)
+
+    # ── URI field ─────────────────────────────────────────────────────────────
+
+    def test_uri_prefilled(self):
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/doi"]})
+        ps   = self._ps_uri(BF + "language", "Language")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn("http://id.loc.gov/vocabulary/languages/doi", html)
+
+    def test_uri_has_data_rdf_path(self):
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/eng"]})
+        ps   = self._ps_uri(BF + "language", "Language")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn(f'data-rdf-path="{BF}language"', html)
+
+    def test_external_link_shown_when_uri_present(self):
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/eng"]})
+        ps   = self._ps_uri(BF + "language", "Language")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn('target="_blank"', html)
+        self.assertIn("http://id.loc.gov/vocabulary/languages/eng", html)
+
+    def test_no_external_link_when_empty(self):
+        factory = self._factory()
+        ps   = self._ps_uri(BF + "language", "Language", required=True)
+        html = factory.build_node_card("Work", [ps])
+        self.assertNotIn('target="_blank"', html)
+
+    # ── Label field ───────────────────────────────────────────────────────────
+
+    def test_label_field_present(self):
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/doi"]})
+        ps   = self._ps_uri(BF + "language", "Language")
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn('id="inputcard-language-0-label"', html)
+
+    def test_label_prefilled_from_state_labels(self):
+        state = _make_state(
+            props={BF + "language": ["http://id.loc.gov/vocabulary/languages/doi"]},
+            labels={"http://id.loc.gov/vocabulary/languages/doi": "Dogri"},
+            resource_uri="https://example.com/w/1",
+        )
+        factory = main.PropCardFactory(state)
+        ps      = self._ps_uri(BF + "language", "Language")
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn("Dogri", html)
+
+    def test_label_field_data_rdf_path_is_rdfs_label(self):
+        factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/doi"]})
+        ps   = self._ps_uri(BF + "language", "Language")
+        html = factory.build_node_card("Work", [ps])
+        rdfs_label = "http://www.w3.org/2000/01/rdf-schema#label"
+        self.assertIn(f'data-rdf-path="{rdfs_label}"', html)
+
+    # ── required star survives dispatch ───────────────────────────────────────
+
+    def test_required_star_on_uri_widget(self):
+        factory = self._factory()
+        ps   = self._ps_uri(BF + "language", "Language", required=True)
+        html = factory.build_node_card("Work", [ps])
+        self.assertIn("text-danger", html)
 
 
 # ── SHACL helpers ─────────────────────────────────────────────────────────────
