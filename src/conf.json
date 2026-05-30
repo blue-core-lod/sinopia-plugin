@@ -1,4 +1,4 @@
 {
   "terminal": false,
-  "packages": []
+  "packages": ["rdflib", "pyschal"]
 }

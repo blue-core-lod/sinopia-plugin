@@ -2,16 +2,15 @@ body { font-size: 14px; background: #fff; }
 
 /* ── Header ── */
 .sinopia-header {
-  background-color: #3d5fa5;
-  color: #fff;
+  background-color: #bcc4e0;
+  color: #1a237e;
   padding: 8px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .sinopia-header .logo { font-size: 1.15rem; font-weight: 500; }
-.sinopia-header .logo .bc-blue { color: #a8c8f8; }
-.sinopia-header .user-nav a { color: #fff; text-decoration: none; }
+.sinopia-header .user-nav a { color: #1a237e; text-decoration: none; }
 .sinopia-header .user-nav a:hover { text-decoration: underline; }
 
 /* ── Sub-nav ── */

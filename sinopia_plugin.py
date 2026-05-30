@@ -14,7 +14,7 @@ BLUECORE_URL     = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstri
 ENVIRONMENT      = os.environ.get("ENVIRONMENT", "")
 SINOPIA_VERSION  = os.environ.get("SINOPIA_VERSION", "4.0.0")
 
-app = FastAPI(title="Sinopia Linked Data Editor", version="4.0.0")
+app = FastAPI(title="Sinopia Linked Data Editor", version=SINOPIA_VERSION)
 app.mount("/static", StaticFiles(directory=str(PLUGIN_DIR / "src" / "static")), name="static")
 templates = Jinja2Templates(directory=str(PLUGIN_DIR / "src" / "templates"))
 
@@ -267,13 +267,13 @@ async def search(request: Request, q: str = "", source: str = "bluecore", page: 
             "search_q": q,
             "search_source": source,
             "results": results,
-            "total": total,
+            "total": f"{total:,}",
             "error": error,
             "page": page,
             "total_pages": total_pages,
             "page_range": _page_range(page, total_pages),
             "first_result": offset + 1 if results else 0,
-            "last_result": offset + len(results),
+            "last_result": f"{(offset + len(results)):,}",
         },
     )
 
