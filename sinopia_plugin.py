@@ -1,248 +1,33 @@
 import math
-import os
-import pathlib
-from datetime import datetime
 
 import httpx
-import pyshacl
-import rdflib
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-PLUGIN_DIR       = pathlib.Path(__file__).parent
-BLUECORE_URL     = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstrip("/")
-ENVIRONMENT      = os.environ.get("ENVIRONMENT", "")
-SINOPIA_VERSION  = os.environ.get("SINOPIA_VERSION", "4.0.0")
-
-_BCLD_HEADERS = {"User-Agent": "Sinopia Editor"}
+from sinopia.bluecore import _page_range, _process_results
+from sinopia.config import (
+    _BCLD_HEADERS,
+    BLUECORE_URL,
+    ENVIRONMENT,
+    PAGE_SIZE,
+    PLUGIN_DIR,
+    SINOPIA_VERSION,
+)
+from sinopia.loc import _parse_loc_feed
+from sinopia.rdf import _detect_format, _parse_rdf, _shacl_violations
 
 app = FastAPI(title="Sinopia Linked Data Editor", version=SINOPIA_VERSION)
 app.mount("/static", StaticFiles(directory=str(PLUGIN_DIR / "src" / "static")), name="static")
 templates = Jinja2Templates(directory=str(PLUGIN_DIR / "src" / "templates"))
 
 
-_BF_VOCAB = "http://id.loc.gov/ontologies/bibframe/"
-PAGE_SIZE = 10
-
-# ─── RDF / SHACL helpers ────────────────────────────────────────────────────
-
-_CONTENT_TYPE_TO_FORMAT: dict[str, str] = {
-    "text/turtle":            "turtle",
-    "application/rdf+xml":   "xml",
-    "application/ld+json":   "json-ld",
-    "text/n3":               "n3",
-    "application/n-triples": "nt",
-    "application/n-quads":   "nquads",
-    "application/trig":      "trig",
-}
-
-_EXT_TO_FORMAT: dict[str, str] = {
-    ".ttl":    "turtle",
-    ".rdf":    "xml",
-    ".jsonld": "json-ld",
-    ".json":   "json-ld",
-    ".n3":     "n3",
-    ".nt":     "nt",
-    ".nq":     "nquads",
-    ".trig":   "trig",
-}
-
-
-def _detect_format(content_type: str, url: str) -> str:
-    """Guess rdflib format string from Content-Type header or URL extension."""
-    for ct, fmt in _CONTENT_TYPE_TO_FORMAT.items():
-        if ct in content_type:
-            return fmt
-    path = url.split("?")[0]
-    for ext, fmt in _EXT_TO_FORMAT.items():
-        if path.endswith(ext):
-            return fmt
-    return "turtle"
-
-
-def _parse_rdf(text: str, base_uri: str, fmt: str) -> tuple[rdflib.Graph, str | None]:
-    """Parse RDF text into a Graph; return (graph, error_message)."""
-    g = rdflib.Graph()
-    try:
-        g.parse(data=text, format=fmt, publicID=base_uri or None)
-        return g, None
-    except Exception as exc:
-        return g, str(exc)
-
-
-_SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
-
-
-def _shacl_violations(data_graph: rdflib.Graph, shapes_url: str) -> dict:
-    """Validate data_graph against shapes loaded from shapes_url.
-
-    Returns a dict with keys: conforms (bool|None), violations (list), error (str|None).
-    """
-    shapes_graph = rdflib.Graph()
-    try:
-        shapes_graph.parse(shapes_url)
-    except Exception as exc:
-        return {"conforms": None, "violations": [], "error": f"Could not load shapes: {exc}"}
-    try:
-        conforms, results_graph, _ = pyshacl.validate(
-            data_graph,
-            shacl_graph=shapes_graph,
-            inference="rdfs",
-            abort_on_first=False,
-        )
-        violations = []
-        for report in results_graph.subjects(rdflib.RDF.type, _SH.ValidationResult):
-            severity = results_graph.value(report, _SH.resultSeverity)
-            focus    = results_graph.value(report, _SH.focusNode)
-            path     = results_graph.value(report, _SH.resultPath)
-            message  = results_graph.value(report, _SH.resultMessage)
-            violations.append({
-                "severity":    str(severity).split("#")[-1] if severity else "",
-                "focus_node":  str(focus) if focus else "",
-                "result_path": str(path).split("#")[-1] if path else "",
-                "message":     str(message) if message else "",
-            })
-        return {"conforms": conforms, "violations": violations, "error": None}
-    except Exception as exc:
-        return {"conforms": None, "violations": [], "error": f"Validation error: {exc}"}
-
-
-def _format_date(iso_str: str) -> str:
-    match iso_str:
-        case "":
-            return ""
-        case _:
-            try:
-                dt = datetime.fromisoformat(iso_str)
-                return dt.strftime(f"%b {dt.day}, %Y")
-            except ValueError:
-                return iso_str
-
-
-def _get_label(result: dict) -> str:
-    data = result.get("data", {})
-    match data.get("http://www.w3.org/2000/01/rdf-schema#label"):
-        case str(label) if label:
-            return label
-    match data.get("title"):
-        case {"mainTitle": str(t)} if t:
-            return t
-        case [{"mainTitle": str(t)}, *_] if t:
-            return t
-    return result.get("uri", "")
-
-
-def _get_types(result: dict) -> list[str]:
-    data = result.get("data", {})
-    match data.get("@type", ""):
-        case str(raw) if raw:
-            raw_list = [raw]
-        case [*items]:
-            raw_list = items
-        case _:
-            raw_list = []
-    return [t if t.startswith("http") else _BF_VOCAB + t for t in raw_list if t]
-
-
-def _page_range(current: int, total_pages: int) -> list:
-    """Return page numbers and '...' sentinels for the paginator."""
-    if total_pages <= 8:
-        return list(range(1, total_pages + 1))
-    window_start = max(1, min(current - 2, total_pages - 5))
-    window_end = min(window_start + 5, total_pages)
-    pages: list = []
-    if window_start > 1:
-        pages.append(1)
-        if window_start > 2:
-            pages.append("...")
-    pages.extend(range(window_start, window_end + 1))
-    if window_end < total_pages:
-        if window_end < total_pages - 1:
-            pages.append("...")
-        pages.append(total_pages)
-    return pages
-
-
-def _process_results(results: list[dict]) -> list[dict]:
-    return [
-        {
-            "label": _get_label(r),
-            "uri": r.get("uri", ""),
-            "uuid": r.get("uuid", ""),
-            "types": _get_types(r),
-            "modified": _format_date(r.get("updated_at", "")),
-            "group": "Blue Core",
-        }
-        for r in results
-    ]
-
-
-# ─── Library of Congress ────────────────────────────────────────────────────
-
-_LOC_URI_TYPES: dict[str, str] = {
-    "/resources/works/":     _BF_VOCAB + "Work",
-    "/resources/instances/": _BF_VOCAB + "Instance",
-    "/authorities/names/":   "http://www.loc.gov/mads/rdf/v1#Authority",
-    "/authorities/subjects/":"http://www.loc.gov/mads/rdf/v1#Topic",
-}
-
-
-def _loc_types_from_uri(uri: str) -> list[str]:
-    return [t for path, t in _LOC_URI_TYPES.items() if path in uri]
-
-
-def _parse_loc_entry(entry: list) -> dict | None:
-    label = uri = modified = ""
-    for child in entry[2:]:
-        if not isinstance(child, list):
-            continue
-        attrs = child[1] if len(child) > 1 and isinstance(child[1], dict) else {}
-        match child[0]:
-            case "atom:title":
-                label = child[-1] if isinstance(child[-1], str) else ""
-            case "atom:link" if attrs.get("rel") == "alternate" and "type" not in attrs:
-                uri = attrs.get("href", "")
-            case "atom:updated":
-                raw = child[-1] if isinstance(child[-1], str) else ""
-                modified = _format_date(raw[:10]) if raw else ""
-    if not uri:
-        return None
-    return {
-        "label": label,
-        "uri": uri,
-        "uuid": "",
-        "types": _loc_types_from_uri(uri),
-        "modified": modified,
-        "group": "Library of Congress",
-    }
-
-
-def _parse_loc_feed(data: list) -> tuple[list[dict], int]:
-    total = 0
-    results: list[dict] = []
-    for child in data[2:]:
-        if not isinstance(child, list):
-            continue
-        match child[0]:
-            case "opensearch:totalResults":
-                try:
-                    total = int(child[-1])
-                except (ValueError, TypeError):
-                    pass
-            case "atom:entry":
-                entry = _parse_loc_entry(child)
-                if entry:
-                    results.append(entry)
-    return results, total
-
-
 @app.get("/")
 async def root():
     return {
         "message": "Sinopia Plugin",
-        "version": "4.0.0",
+        "version": SINOPIA_VERSION,
         "bluecore_url": BLUECORE_URL,
     }
 
@@ -346,14 +131,14 @@ async def load_rdf_post(
         context={
             "environment": ENVIRONMENT,
             "active_nav": "actions",
-            "rdf":         rdf,
-            "rdf_url":     rdf_url,
-            "base_uri":    base_uri,
-            "shapes_url":  shapes_url,
-            "fetch_error": fetch_error,
-            "parse_error": parse_error,
+            "rdf":          rdf,
+            "rdf_url":      rdf_url,
+            "base_uri":     base_uri,
+            "shapes_url":   shapes_url,
+            "fetch_error":  fetch_error,
+            "parse_error":  parse_error,
             "triple_count": triple_count,
-            "validation":  validation,
+            "validation":   validation,
         },
     )
 
@@ -408,18 +193,18 @@ async def search(request: Request, q: str = "", source: str = "bluecore", page: 
         request=request,
         name="search.html",
         context={
-            "environment": ENVIRONMENT,
-            "active_nav": "search",
-            "search_q": q,
+            "environment":   ENVIRONMENT,
+            "active_nav":    "search",
+            "search_q":      q,
             "search_source": source,
-            "results": results,
-            "total": f"{total:,}",
-            "error": error,
-            "page": page,
-            "total_pages": total_pages,
-            "page_range": _page_range(page, total_pages),
-            "first_result": offset + 1 if results else 0,
-            "last_result": f"{(offset + len(results)):,}",
+            "results":       results,
+            "total":         f"{total:,}",
+            "error":         error,
+            "page":          page,
+            "total_pages":   total_pages,
+            "page_range":    _page_range(page, total_pages),
+            "first_result":  offset + 1 if results else 0,
+            "last_result":   f"{(offset + len(results)):,}",
         },
     )
 
@@ -430,10 +215,10 @@ async def editor_new(request: Request):
         request=request,
         name="index.html",
         context={
-            "resource_id": "",
-            "bluecore_url": BLUECORE_URL,
-            "environment": ENVIRONMENT,
-            "active_nav": "editor",
+            "resource_id":    "",
+            "bluecore_url":   BLUECORE_URL,
+            "environment":    ENVIRONMENT,
+            "active_nav":     "editor",
             "sinopia_version": SINOPIA_VERSION,
         },
     )
@@ -455,9 +240,9 @@ async def editor(request: Request, resource_id: str):
         request=request,
         name="index.html",
         context={
-            "resource_id": resource_id,
+            "resource_id":  resource_id,
             "bluecore_url": BLUECORE_URL,
-            "environment": ENVIRONMENT,
-            "active_nav": "editor",
+            "environment":  ENVIRONMENT,
+            "active_nav":   "editor",
         },
     )

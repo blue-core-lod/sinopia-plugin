@@ -1,17 +1,21 @@
-"""Tests for sinopia_plugin helper functions."""
+"""Tests for sinopia helper functions."""
 import unittest
 
-from sinopia_plugin import (
-    _detect_format,
+from sinopia.bluecore import (
     _format_date,
     _get_label,
     _get_types,
-    _loc_types_from_uri,
     _page_range,
+    _process_results,
+)
+from sinopia.loc import (
+    _loc_types_from_uri,
     _parse_loc_entry,
     _parse_loc_feed,
+)
+from sinopia.rdf import (
+    _detect_format,
     _parse_rdf,
-    _process_results,
 )
 
 BF = "http://id.loc.gov/ontologies/bibframe/"
