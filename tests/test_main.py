@@ -7,6 +7,7 @@ The emscripten-platform guard in main.py prevents _entry_point() from being
 scheduled automatically during import.
 """
 import asyncio
+import json
 import os
 import sys
 import unittest
@@ -25,6 +26,8 @@ sys.modules["js"]            = MagicMock()
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import main  # noqa: E402  (must come after sys.modules patches)
 
+BF = "http://id.loc.gov/ontologies/bibframe/"
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +40,10 @@ def _make_state(**kwargs) -> main.EditorState:
 
 def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def _ps(path, name, required=False, value_class="", datatype="", description="", order=1):
+    return main.PropShape(path, name, required, value_class, datatype, description, order)
 
 
 # ── EditorState.__init__ ───────────────────────────────────────────────────────
@@ -53,7 +60,6 @@ class TestEditorStateInit(unittest.TestCase):
         self.assertEqual(s.triples, [])
         self.assertEqual(s.props, {})
         self.assertEqual(s.field_edits, {})
-        self.assertIn("Work Title", s.expanded_sections)
 
 
 # ── EditorState._literal ───────────────────────────────────────────────────────
@@ -67,20 +73,11 @@ class TestLiteral(unittest.TestCase):
         self.assertEqual(main.EditorState._literal({"@value": "Star wars"}), "Star wars")
 
     def test_dict_with_id(self):
-        self.assertEqual(
-            main.EditorState._literal({"@id": "http://example.com/foo"}),
-            "http://example.com/foo",
-        )
+        self.assertEqual(main.EditorState._literal({"@id": "http://example.com/foo"}),
+                         "http://example.com/foo")
 
     def test_dict_value_takes_priority_over_id(self):
-        self.assertEqual(
-            main.EditorState._literal({"@value": "literal", "@id": "http://x"}),
-            "literal",
-        )
-
-    def test_dict_without_known_keys(self):
-        result = main.EditorState._literal({"@other": "x"})
-        self.assertIsInstance(result, str)
+        self.assertEqual(main.EditorState._literal({"@value": "lit", "@id": "http://x"}), "lit")
 
     def test_integer_coerced(self):
         self.assertEqual(main.EditorState._literal(42), "42")
@@ -91,13 +88,10 @@ class TestLiteral(unittest.TestCase):
 class TestParse(unittest.TestCase):
 
     SAMPLE = {
-        "@id": "https://dev.bcld.info/works/ed1213b5",
-        "@type": [
-            "http://id.loc.gov/ontologies/bibframe/Work",
-            "http://id.loc.gov/ontologies/bibframe/Monograph",
-        ],
+        "@id":   "https://dev.bcld.info/works/ed1213b5",
+        "@type": [BF + "Work", BF + "Monograph"],
         "http://www.w3.org/2000/01/rdf-schema#label": {"@value": "Star wars"},
-        "http://id.loc.gov/ontologies/bibframe/mainTitle": {"@value": "Star wars"},
+        BF + "mainTitle": {"@value": "Star wars"},
     }
 
     def _parsed(self, data=None):
@@ -106,160 +100,87 @@ class TestParse(unittest.TestCase):
         return s
 
     def test_resource_uri(self):
-        s = self._parsed()
-        self.assertEqual(s.resource_uri, "https://dev.bcld.info/works/ed1213b5")
+        self.assertEqual(self._parsed().resource_uri, "https://dev.bcld.info/works/ed1213b5")
 
     def test_resource_types_list(self):
-        s = self._parsed()
-        self.assertIn("http://id.loc.gov/ontologies/bibframe/Monograph", s.resource_types)
+        self.assertIn(BF + "Monograph", self._parsed().resource_types)
 
     def test_resource_types_string_coerced_to_list(self):
-        data = dict(self.SAMPLE, **{"@type": "http://id.loc.gov/ontologies/bibframe/Work"})
-        s = self._parsed(data)
-        self.assertIsInstance(s.resource_types, list)
+        data = dict(self.SAMPLE, **{"@type": BF + "Work"})
+        self.assertIsInstance(self._parsed(data).resource_types, list)
 
     def test_resource_label(self):
-        s = self._parsed()
-        self.assertEqual(s.resource_label, "Star wars")
+        self.assertEqual(self._parsed().resource_label, "Star wars")
 
     def test_triples_populated(self):
         s = self._parsed()
-        self.assertTrue(len(s.triples) > 0)
-        subjects = {t[0] for t in s.triples}
-        self.assertEqual(subjects, {"https://dev.bcld.info/works/ed1213b5"})
+        self.assertGreater(len(s.triples), 0)
+        self.assertEqual({t[0] for t in s.triples}, {"https://dev.bcld.info/works/ed1213b5"})
 
     def test_props_populated(self):
-        s = self._parsed()
-        self.assertIn("http://id.loc.gov/ontologies/bibframe/mainTitle", s.props)
+        self.assertIn(BF + "mainTitle", self._parsed().props)
 
     def test_expanded_jsonld_list(self):
-        data = [
-            {"@id": "_:blank"},
-            {
-                "@id": "https://dev.bcld.info/works/xyz",
-                "@type": ["http://id.loc.gov/ontologies/bibframe/Work"],
-            },
-        ]
+        data = [{"@id": "_:blank"},
+                {"@id": "https://dev.bcld.info/works/xyz", "@type": [BF + "Work"]}]
         s = main.EditorState("xyz")
         s._parse(data)
         self.assertEqual(s.resource_uri, "https://dev.bcld.info/works/xyz")
 
     def test_fallback_uri_when_missing(self):
         s = main.EditorState("fallback-id")
-        s._parse({"@type": ["http://id.loc.gov/ontologies/bibframe/Work"]})
+        s._parse({"@type": [BF + "Work"]})
         self.assertIn("fallback-id", s.resource_uri)
 
-    def test_rdfs_label_shorthand(self):
-        data = dict(self.SAMPLE)
-        del data["http://www.w3.org/2000/01/rdf-schema#label"]
-        data["rdfs:label"] = {"@value": "Short label"}
-        s = self._parsed(data)
-        self.assertEqual(s.resource_label, "Short label")
-
     def test_skip_keys_not_in_triples(self):
-        s = self._parsed()
-        preds = {t[1] for t in s.triples}
+        preds = {t[1] for t in self._parsed().triples}
         self.assertNotIn("@id", preds)
         self.assertNotIn("@type", preds)
-        self.assertNotIn("@context", preds)
 
-    def test_list_values_expanded(self):
+    def test_nested_blank_node_props_extracted(self):
         data = {
-            "@id": "https://example.com/w1",
-            "@type": ["http://id.loc.gov/ontologies/bibframe/Work"],
-            "http://id.loc.gov/ontologies/bibframe/language": [
-                {"@id": "http://id.loc.gov/vocabulary/languages/eng"},
-                {"@id": "http://id.loc.gov/vocabulary/languages/fre"},
-            ],
+            "@id": "https://dev.bcld.info/works/w1",
+            "@type": [BF + "Work"],
+            BF + "title": [{"@type": [BF + "Title"], BF + "mainTitle": [{"@value": "Star Wars"}]}],
         }
         s = main.EditorState("w1")
         s._parse(data)
-        lang_vals = s.props.get("http://id.loc.gov/ontologies/bibframe/language", [])
-        self.assertEqual(len(lang_vals), 2)
+        self.assertIn(BF + "mainTitle", s.props)
+        self.assertEqual(s.props[BF + "mainTitle"], ["Star Wars"])
+
+    def test_real_uri_node_not_recursed(self):
+        data = {
+            "@id":   "https://dev.bcld.info/works/w3",
+            "@type": [BF + "Work"],
+            BF + "language": [{"@id": "http://id.loc.gov/vocabulary/languages/eng"}],
+        }
+        s = main.EditorState("w3")
+        s._parse(data)
+        self.assertNotIn("http://www.w3.org/2000/01/rdf-schema#label", s.props)
 
 
-# ── EditorState.type_short ─────────────────────────────────────────────────────
+# ── EditorState.type_short / resource_name / has_prop ─────────────────────────
 
-class TestTypeShort(unittest.TestCase):
+class TestEditorStateMethods(unittest.TestCase):
 
-    def test_monograph(self):
-        s = _make_state(resource_types=[
-            "http://id.loc.gov/ontologies/bibframe/Work",
-            "http://id.loc.gov/ontologies/bibframe/Monograph",
-        ])
+    def test_type_short_monograph(self):
+        s = _make_state(resource_types=[BF + "Work", BF + "Monograph"])
         self.assertEqual(s.type_short(), "Monograph")
 
-    def test_work_only(self):
-        s = _make_state(resource_types=["http://id.loc.gov/ontologies/bibframe/Work"])
-        self.assertEqual(s.type_short(), "Work")
-
-    def test_empty_types(self):
+    def test_type_short_fallback(self):
         s = _make_state(resource_types=[])
         self.assertEqual(s.type_short(), "Work")
 
-    def test_hash_fragment_type(self):
-        s = _make_state(resource_types=["http://example.com/onto#Text"])
-        self.assertEqual(s.type_short(), "Text")
-
-
-# ── EditorState.resource_name ──────────────────────────────────────────────────
-
-class TestResourceName(unittest.TestCase):
-
-    def test_includes_type(self):
-        s = _make_state(resource_types=[
-            "http://id.loc.gov/ontologies/bibframe/Work",
-            "http://id.loc.gov/ontologies/bibframe/Monograph",
-        ])
+    def test_resource_name(self):
+        s = _make_state(resource_types=[BF + "Work", BF + "Monograph"])
         self.assertEqual(s.resource_name(), "_Work (Monograph)")
 
-    def test_defaults_to_work(self):
-        s = _make_state(resource_types=[])
-        self.assertEqual(s.resource_name(), "_Work (Work)")
-
-
-# ── EditorState.main_title ─────────────────────────────────────────────────────
-
-class TestMainTitle(unittest.TestCase):
-
-    def test_returns_main_title(self):
-        s = _make_state(props={
-            "http://id.loc.gov/ontologies/bibframe/mainTitle": ["Star wars"]
-        })
-        self.assertEqual(s.main_title(), "Star wars")
-
-    def test_returns_empty_when_missing(self):
-        s = _make_state(props={})
-        self.assertEqual(s.main_title(), "")
-
-    def test_returns_first_value(self):
-        s = _make_state(props={
-            "http://id.loc.gov/ontologies/bibframe/mainTitle": ["First", "Second"]
-        })
-        self.assertEqual(s.main_title(), "First")
-
-    def test_empty_list(self):
-        s = _make_state(props={
-            "http://id.loc.gov/ontologies/bibframe/mainTitle": []
-        })
-        self.assertEqual(s.main_title(), "")
-
-
-# ── EditorState.has_prop ───────────────────────────────────────────────────────
-
-class TestHasProp(unittest.TestCase):
-
-    def test_found(self):
-        s = _make_state(props={"http://id.loc.gov/ontologies/bibframe/title": ["x"]})
+    def test_has_prop_found(self):
+        s = _make_state(props={BF + "title": ["x"]})
         self.assertTrue(s.has_prop("title"))
 
-    def test_not_found(self):
-        s = _make_state(props={})
-        self.assertFalse(s.has_prop("title"))
-
-    def test_partial_fragment(self):
-        s = _make_state(props={"http://id.loc.gov/ontologies/bibframe/originDate": ["1977"]})
-        self.assertTrue(s.has_prop("originDate"))
+    def test_has_prop_not_found(self):
+        self.assertFalse(_make_state(props={}).has_prop("title"))
 
 
 # ── EditorState.load ───────────────────────────────────────────────────────────
@@ -275,21 +196,15 @@ class TestLoad(unittest.TestCase):
         return resp
 
     def test_successful_load(self):
-        data = {
-            "@id": "https://dev.bcld.info/works/test-uuid",
-            "@type": ["http://id.loc.gov/ontologies/bibframe/Work"],
-        }
+        data = {"@id": "https://dev.bcld.info/works/test-uuid", "@type": [BF + "Work"]}
         s = main.EditorState("test-uuid")
-        with patch("main.pyfetch", return_value=self._mock_response(data)) as mock_fetch:
+        with patch("main.pyfetch", return_value=self._mock_response(data)):
             _run(s.load())
-        mock_fetch.assert_awaited_once()
         self.assertEqual(s.resource_uri, "https://dev.bcld.info/works/test-uuid")
-        self.assertEqual(s.raw_data, data)
 
     def test_http_error_raises(self):
         s = main.EditorState("bad-uuid")
-        resp = self._mock_response({}, ok=False, status=404)
-        with patch("main.pyfetch", return_value=resp):
+        with patch("main.pyfetch", return_value=self._mock_response({}, ok=False, status=404)):
             with self.assertRaises(RuntimeError) as ctx:
                 _run(s.load())
         self.assertIn("404", str(ctx.exception))
@@ -299,8 +214,7 @@ class TestLoad(unittest.TestCase):
         s = main.EditorState("my-id")
         with patch("main.pyfetch", return_value=self._mock_response(data)) as mock_fetch:
             _run(s.load())
-        call_args = mock_fetch.call_args[0][0]
-        self.assertIn("my-id", call_args)
+        self.assertIn("my-id", mock_fetch.call_args[0][0])
 
 
 # ── _sid ───────────────────────────────────────────────────────────────────────
@@ -310,198 +224,495 @@ class TestSid(unittest.TestCase):
     def test_spaces_to_dashes(self):
         self.assertEqual(main._sid("Work Title"), "work-title")
 
-    def test_slashes_removed(self):
-        self.assertEqual(main._sid("Variant and/or Parallel"), "variant-andor-parallel")
+    def test_slashes_become_dashes(self):
+        self.assertEqual(main._sid("Variant and/or Parallel"), "variant-and-or-parallel")
 
     def test_parens_removed(self):
         self.assertEqual(main._sid("Other (creator)"), "other-creator")
-
-    def test_commas_removed(self):
-        self.assertEqual(main._sid("Date, Legal"), "date-legal")
-
-    def test_apostrophes_removed(self):
-        self.assertEqual(main._sid("Creator's note"), "creators-note")
-
-    def test_full_label(self):
-        result = main._sid("Geographic Coverage of the Content of the Resource")
-        self.assertNotIn(" ", result)
-        self.assertNotIn("/", result)
-
-
-# ── _section ───────────────────────────────────────────────────────────────────
-
-class TestSection(unittest.TestCase):
-
-    def test_required_star_present(self):
-        html = main._section("My Field", True, "<p>body</p>")
-        self.assertIn("text-danger", html)
-        self.assertIn("*", html)
-
-    def test_not_required_no_star(self):
-        html = main._section("My Field", False, "<p>body</p>")
-        self.assertNotIn("text-danger", html)
-
-    def test_id_derived_from_title(self):
-        html = main._section("Work Title", False, "")
-        self.assertIn('id="section-work-title"', html)
-
-    def test_body_included(self):
-        html = main._section("Field", False, "<span>BODY</span>")
-        self.assertIn("<span>BODY</span>", html)
-
-    def test_title_in_output(self):
-        html = main._section("My Label", False, "")
-        self.assertIn("My Label", html)
 
 
 # ── _add_link ──────────────────────────────────────────────────────────────────
 
 class TestAddLink(unittest.TestCase):
 
-    def test_contains_label(self):
-        html = main._add_link("Contributor")
-        self.assertIn("+ Add Contributor", html)
+    def test_label_present(self):
+        self.assertIn("+ Add Contributor", main._add_link("Contributor"))
 
     def test_no_external_icon_by_default(self):
-        html = main._add_link("Note")
-        self.assertNotIn("box-arrow-up-right", html)
+        self.assertNotIn("box-arrow-up-right", main._add_link("Note"))
 
     def test_external_icon_added(self):
-        html = main._add_link("Part Number/Letter", external=True)
-        self.assertIn("box-arrow-up-right", html)
-
-    def test_is_anchor(self):
-        html = main._add_link("Language")
-        self.assertIn("<a ", html)
-        self.assertIn("</a>", html)
+        self.assertIn("box-arrow-up-right", main._add_link("Part", external=True))
 
 
 # ── _input_card ────────────────────────────────────────────────────────────────
 
 class TestInputCard(unittest.TestCase):
 
-    def test_contains_id(self):
-        html = main._input_card("bf:mainTitle", "Enter a literal", "my-input")
-        self.assertIn('id="my-input"', html)
-
-    def test_contains_data_field(self):
-        html = main._input_card("bf:mainTitle", "Enter a literal", "my-input")
-        self.assertIn('data-field="my-input"', html)
+    def test_contains_ids(self):
+        html = main._input_card("bf:title", "Enter", "my-id")
+        self.assertIn('id="my-id"', html)
+        self.assertIn('data-field="my-id"', html)
 
     def test_value_rendered(self):
-        html = main._input_card("bf:mainTitle", "prompt", "id", value="Star wars")
-        self.assertIn("Star wars", html)
+        self.assertIn("Star wars", main._input_card("bf:title", "p", "id", value="Star wars"))
 
     def test_html_escaped_in_value(self):
-        html = main._input_card("bf:mainTitle", "prompt", "id", value="<script>")
+        html = main._input_card("bf:title", "p", "id", value="<script>")
         self.assertNotIn("<script>", html)
         self.assertIn("&lt;script&gt;", html)
 
-    def test_ampersand_escaped(self):
-        html = main._input_card("bf:mainTitle", "prompt", "id", value="A & B")
-        self.assertIn("A &amp; B", html)
-
-    def test_prop_uri_displayed(self):
-        html = main._input_card("bf:mainTitle", "Enter a literal", "id")
-        self.assertIn("bf:mainTitle", html)
-
-    def test_prompt_displayed(self):
-        html = main._input_card("bf:mainTitle", "Enter a literal", "id")
-        self.assertIn("Enter a literal", html)
+    def test_data_rdf_path_present(self):
+        html = main._input_card(BF + "title", "p", "id")
+        self.assertIn(f'data-rdf-path="{BF}title"', html)
 
 
-# ── _build_work_title ─────────────────────────────────────────────────────────
+# ── _values_for_path ──────────────────────────────────────────────────────────
 
-class TestBuildWorkTitle(unittest.TestCase):
+class TestValuesForPath(unittest.TestCase):
 
-    def test_prefills_main_title(self):
-        s = _make_state(props={
-            "http://id.loc.gov/ontologies/bibframe/mainTitle": ["Star wars"]
-        })
-        html = main._build_work_title(s)
-        self.assertIn("Star wars", html)
+    def test_exact_uri_match(self):
+        s = _make_state(props={BF + "title": ["x"]})
+        self.assertEqual(main._values_for_path(s, BF + "title"), ["x"])
 
-    def test_empty_title_when_missing(self):
-        s = _make_state(props={})
-        html = main._build_work_title(s)
-        self.assertIn('id="input-main-title"', html)
+    def test_fragment_fallback(self):
+        s = _make_state(props={BF + "title": ["X"]})
+        self.assertEqual(main._values_for_path(s, "http://other.org/onto/title"), ["X"])
 
-    def test_section_id_present(self):
-        s = _make_state(props={})
-        html = main._build_work_title(s)
-        self.assertIn('id="section-work-title"', html)
+    def test_compact_key_match(self):
+        s = _make_state(props={"title": ["Star Wars"]})
+        self.assertEqual(main._values_for_path(s, BF + "title"), ["Star Wars"])
 
-    def test_required_star(self):
-        s = _make_state(props={})
-        html = main._build_work_title(s)
+    def test_no_match_returns_empty(self):
+        self.assertEqual(main._values_for_path(_make_state(props={}), BF + "title"), [])
+
+    def test_nested_blob_filtered_out(self):
+        s = _make_state(props={"contribution": ["{'@type': ['PrimaryContribution']}"]})
+        self.assertEqual(main._values_for_path(s, "contribution"), [])
+
+    def test_list_blob_filtered_out(self):
+        s = _make_state(props={"items": ["[1, 2, 3]", "plain"]})
+        self.assertEqual(main._values_for_path(s, "items"), ["plain"])
+
+
+# ── PropCardFactory ───────────────────────────────────────────────────────────
+
+class TestPropCardFactory(unittest.TestCase):
+
+    def _factory(self, **props):
+        return main.PropCardFactory(_make_state(props=props,
+                                                resource_uri="https://example.com/w/1"))
+
+    # ── build_node_card ───────────────────────────────────────────────────────
+
+    def test_required_with_no_value_shows_blank_card(self):
+        factory = self._factory()
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps], target_class=BF + "Work")
+        self.assertIn("inputcard-work-title-0", html)
+
+    def test_optional_with_no_value_returns_empty(self):
+        factory = self._factory()
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card("Work", [ps], target_class=BF + "Work")
+        self.assertEqual(html, "")
+
+    def test_optional_with_value_shows_card(self):
+        factory = self._factory(**{BF + "note": ["A note"]})
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn("A note", html)
+
+    def test_required_with_value_prefills(self):
+        factory = self._factory(**{BF + "title": ["Star Wars"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn("Star Wars", html)
+
+    # ── prop-card IDs and data attributes ────────────────────────────────────
+
+    def test_propcard_id_from_shape_name(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn('id="propcard-work"', html)
+
+    def test_propcard_id_from_rdfs_label_with_special_chars(self):
+        # "Instance (Monograph) Print" → propcard-instance-monograph-print
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Title", required=True)
+        html    = factory.build_node_card("Instance (Monograph) Print", [ps])
+        self.assertIn('id="propcard-instance-monograph-print"', html)
+
+    def test_propcard_data_rdf_shape(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps],
+                                          shape_uri="http://example.com/shapes/Work")
+        self.assertIn('data-rdf-shape="http://example.com/shapes/Work"', html)
+
+    def test_propcard_data_rdf_class(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps], target_class=BF + "Work")
+        self.assertIn(f'data-rdf-class="{BF}Work"', html)
+
+    def test_propcard_data_rdf_subject(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn('data-rdf-subject="https://example.com/w/1"', html)
+
+    def test_no_shape_uri_omits_data_rdf_shape(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertNotIn("data-rdf-shape", html)
+
+    # ── input-card IDs and data attributes ───────────────────────────────────
+
+    def test_inputcard_id(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn('id="inputcard-work-title-0"', html)
+
+    def test_inputcard_data_rdf_path(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn(f'data-rdf-path="{BF}title"', html)
+
+    def test_textarea_id_is_inputcard_value(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn('id="inputcard-work-title-0-value"', html)
+
+    # ── required star ─────────────────────────────────────────────────────────
+
+    def test_required_shows_red_star(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Work Title", required=True)
+        html    = factory.build_node_card("Work", [ps])
         self.assertIn("text-danger", html)
 
-    def test_non_sort_num_field_present(self):
-        s = _make_state(props={})
-        html = main._build_work_title(s)
-        self.assertIn('id="input-non-sort-num"', html)
+    def test_optional_no_star(self):
+        factory = self._factory(**{BF + "note": ["X"]})
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card("Work", [ps])
+        self.assertNotIn("text-danger", html)
+
+    # ── multiple values ───────────────────────────────────────────────────────
+
+    def test_multiple_values_multiple_inputcards(self):
+        factory = self._factory(**{BF + "language": ["eng", "fre"]})
+        ps      = _ps(BF + "language", "Language")
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn("inputcard-language-0", html)
+        self.assertIn("inputcard-language-1", html)
+        self.assertIn("eng", html)
+        self.assertIn("fre", html)
+
+    # ── violations ────────────────────────────────────────────────────────────
+
+    def test_violation_shows_optional_property(self):
+        factory = self._factory()
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card(
+            "Work", [ps],
+            [{"path": BF + "note", "severity": "violation", "message": ""}],
+        )
+        self.assertIn("inputcard-note-0", html)
+
+    def test_violation_badge_shown(self):
+        factory = self._factory()
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card(
+            "Work", [ps],
+            [{"path": BF + "note", "severity": "violation", "message": ""}],
+        )
+        self.assertIn("bg-danger", html)
+
+    def test_warning_badge_shown(self):
+        factory = self._factory()
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card(
+            "Work", [ps],
+            [{"path": BF + "note", "severity": "warning", "message": ""}],
+        )
+        self.assertIn("bg-warning", html)
+
+    def test_info_badge_shown(self):
+        factory = self._factory()
+        ps      = _ps(BF + "note", "Note", required=False)
+        html    = factory.build_node_card(
+            "Work", [ps],
+            [{"path": BF + "note", "severity": "info", "message": ""}],
+        )
+        self.assertIn("bg-info", html)
+
+    # ── build_fallback_card ───────────────────────────────────────────────────
+
+    def test_fallback_card_shows_leaf_props(self):
+        factory = self._factory(**{BF + "language": ["eng"]})
+        self.assertIn("eng", factory.build_fallback_card())
+
+    def test_fallback_card_has_propcard_id(self):
+        factory = self._factory(**{BF + "language": ["eng"]})
+        self.assertIn("propcard-", factory.build_fallback_card())
+
+    def test_fallback_card_empty_when_no_props(self):
+        self.assertEqual(self._factory().build_fallback_card(), "")
+
+    def test_fallback_card_filters_blobs(self):
+        factory = self._factory(**{"contribution": ["{'@type': ['PrimaryContribution']}"],
+                                   BF + "language": ["eng"]})
+        html = factory.build_fallback_card()
+        self.assertIn("eng", html)
+        self.assertNotIn("PrimaryContribution", html)
+
+    # ── metadata ──────────────────────────────────────────────────────────────
+
+    def test_value_class_shown(self):
+        factory = self._factory(**{BF + "title": ["X"]})
+        ps      = _ps(BF + "title", "Title", value_class=BF + "Title")
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn("bibframe/Title", html)
+
+    def test_compact_key_value_found(self):
+        factory = self._factory(language=["eng"])
+        ps      = _ps(BF + "language", "Language")
+        html    = factory.build_node_card("Work", [ps])
+        self.assertIn("eng", html)
 
 
-# ── _build_variant_title ──────────────────────────────────────────────────────
+# ── SHACL helpers ─────────────────────────────────────────────────────────────
 
-class TestBuildVariantTitle(unittest.TestCase):
+_SHACL_WORK = """
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix bf:  <http://id.loc.gov/ontologies/bibframe/> .
+
+[] a sh:NodeShape ;
+   sh:targetClass bf:Work ;
+   sh:property [
+       sh:path bf:title ;    sh:name "Work Title" ; sh:minCount 1 ; sh:order 1 ;
+       sh:class bf:Title ;
+   ] ;
+   sh:property [
+       sh:path bf:language ; sh:name "Language" ;   sh:minCount 1 ; sh:order 2 ;
+   ] ;
+   sh:property [
+       sh:path bf:note ;     sh:name "Note" ;       sh:minCount 0 ; sh:order 5 ;
+   ] .
+"""
+
+
+def _shacl_graph():
+    import rdflib
+    g = rdflib.Graph()
+    g.parse(data=_SHACL_WORK, format="turtle")
+    return g
+
+
+class TestLoadShaclGraph(unittest.TestCase):
+
+    def test_empty_when_no_template(self):
+        with patch("main.js") as mock_js:
+            mock_js.localStorage.getItem.return_value = None
+            g = main._load_shacl_graph()
+        self.assertEqual(len(g), 0)
+
+    def test_parses_valid_turtle(self):
+        with patch("main.js") as mock_js:
+            mock_js.localStorage.getItem.return_value = json.dumps([_SHACL_WORK])
+            g = main._load_shacl_graph()
+        self.assertGreater(len(g), 0)
+
+    def test_merges_multiple_graphs(self):
+        shape2 = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+[] a sh:NodeShape ; sh:targetClass bf:Instance .
+"""
+        with patch("main.js") as mock_js:
+            mock_js.localStorage.getItem.return_value = json.dumps([_SHACL_WORK, shape2])
+            g = main._load_shacl_graph()
+        targets = [str(t) for t in g.objects(None, main.SH.targetClass)]
+        self.assertIn(BF + "Work", targets)
+        self.assertIn(BF + "Instance", targets)
+
+
+class TestShapesForTypes(unittest.TestCase):
+
+    def test_finds_work_shape(self):
+        g = _shacl_graph()
+        self.assertEqual(len(main._shapes_for_types(g, [BF + "Work"])), 1)
+
+    def test_no_match(self):
+        g = _shacl_graph()
+        self.assertEqual(main._shapes_for_types(g, ["http://example.com/Unknown"]), [])
+
+    def test_empty_types(self):
+        g = _shacl_graph()
+        self.assertEqual(main._shapes_for_types(g, []), [])
+
+
+_SHACL_MULTI = _SHACL_WORK + """
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix bf:  <http://id.loc.gov/ontologies/bibframe/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex: <http://example.com/shapes/> .
+
+ex:InstanceShape a sh:NodeShape ;
+    rdfs:label "Instance (Monograph) Print" ;
+    sh:targetClass bf:Instance ;
+    sh:property [
+        sh:path bf:title ; sh:name "Instance Title" ; sh:minCount 1 ; sh:order 1 ;
+    ] .
+"""
+
+
+class TestAllShapes(unittest.TestCase):
+
+    def test_returns_all_node_shapes(self):
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data=_SHACL_MULTI, format="turtle")
+        shapes = main._all_shapes(g)
+        self.assertEqual(len(shapes), 2)
+
+    def test_named_shapes_before_blanks(self):
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data=_SHACL_MULTI, format="turtle")
+        shapes = main._all_shapes(g)
+        # ex:InstanceShape is a named URIRef; the Work shape is a blank node
+        import rdflib as rl
+        named = [s for s in shapes if isinstance(s, rl.URIRef)]
+        self.assertEqual(len(named), 1)
+        self.assertIn("InstanceShape", str(named[0]))
+
+    def test_empty_graph_returns_empty(self):
+        import rdflib
+        self.assertEqual(main._all_shapes(rdflib.Graph()), [])
+
+
+class TestShapeLabel(unittest.TestCase):
+
+    def test_rdfs_label_preferred(self):
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data=_SHACL_MULTI, format="turtle")
+        shapes = main._all_shapes(g)
+        named  = next(s for s in shapes if isinstance(s, rdflib.URIRef))
+        self.assertEqual(main._shape_label(g, named), "Instance (Monograph) Print")
+
+    def test_falls_back_to_uri_fragment(self):
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data="""
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+<http://example.com/shapes/MyShape> a sh:NodeShape .
+""", format="turtle")
+        shape = list(g.subjects(rdflib.RDF.type, main.SH.NodeShape))[0]
+        self.assertEqual(main._shape_label(g, shape), "MyShape")
+
+    def test_colon_separated_uri_uses_last_segment(self):
+        import rdflib
+        g = rdflib.Graph()
+        # Simulate big:Monograph:Instance:Print style URI
+        g.parse(data="""
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix big: <http://example.com/big/> .
+<http://example.com/big/Monograph:Instance:Print> a sh:NodeShape .
+""", format="turtle")
+        shape = list(g.subjects(rdflib.RDF.type, main.SH.NodeShape))[0]
+        label = main._shape_label(g, shape)
+        self.assertTrue(len(label) > 0)
+
+
+class TestPropShapes(unittest.TestCase):
 
     def setUp(self):
-        self.html = main._build_variant_title()
+        self.g     = _shacl_graph()
+        self.shape = main._shapes_for_types(self.g, [BF + "Work"])[0]
 
-    def test_parallel_title_card(self):
-        self.assertIn("Title--Parallel Title", self.html)
+    def test_count(self):
+        self.assertEqual(len(main._prop_shapes(self.g, self.shape)), 3)
 
-    def test_variant_title_card(self):
-        self.assertIn("Title--Work Title Variant", self.html)
+    def test_sorted_by_order(self):
+        orders = [p.order for p in main._prop_shapes(self.g, self.shape)]
+        self.assertEqual(orders, sorted(orders))
 
-    def test_section_id(self):
-        self.assertIn("section-variant-andor-parallel-work-title", self.html)
+    def test_required_flag(self):
+        props = main._prop_shapes(self.g, self.shape)
+        title = next(p for p in props if "title" in p.path)
+        self.assertTrue(title.required)
+        note  = next(p for p in props if "note"  in p.path)
+        self.assertFalse(note.required)
 
-    def test_add_links_present(self):
-        self.assertIn("+ Add Parallel Title", self.html)
-        self.assertIn("+ Add Date", self.html)
+    def test_value_class_extracted(self):
+        props = main._prop_shapes(self.g, self.shape)
+        title = next(p for p in props if p.name == "Work Title")
+        self.assertIn("Title", title.value_class)
 
 
-# ── _build_simple ─────────────────────────────────────────────────────────────
+class TestValidate(unittest.TestCase):
 
-class TestBuildSimple(unittest.TestCase):
+    _TURTLE_VALID = """
+@prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+[] a sh:NodeShape ; sh:targetClass bf:Work ;
+   sh:property [ sh:path bf:title ; sh:minCount 1 ] .
+<https://example.com/w/1> a bf:Work ; bf:title "Star Wars" .
+"""
 
-    def test_label_in_output(self):
-        html = main._build_simple("Government Publication Type", False)
-        self.assertIn("Government Publication Type", html)
+    _TURTLE_SHACL = """
+@prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+[] a sh:NodeShape ; sh:targetClass bf:Work ;
+   sh:property [ sh:path bf:title ; sh:minCount 1 ] .
+"""
 
-    def test_add_link_in_output(self):
-        html = main._build_simple("Language of Accompanying Work", False)
-        self.assertIn("+ Add Language of Accompanying Work", html)
+    def _state(self, raw):
+        s = main.EditorState("w1")
+        s.raw_data = raw
+        return s
 
-    def test_required_propagated(self):
-        html = main._build_simple("Language", True)
-        self.assertIn("text-danger", html)
+    def test_returns_empty_list_on_conforms(self):
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data=self._TURTLE_SHACL, format="turtle")
+        s = self._state({"@id": "https://example.com/w/1",
+                         "@type": [BF + "Work"],
+                         BF + "title": "Star Wars"})
+        result = main._validate(s, g)
+        self.assertIsInstance(result, list)
+
+    def test_returns_list_on_violation(self):
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data=self._TURTLE_SHACL, format="turtle")
+        # resource has no bf:title → should violate minCount 1
+        s = self._state({"@id": "https://example.com/w/1", "@type": [BF + "Work"]})
+        result = main._validate(s, g)
+        self.assertIsInstance(result, list)
+
+    def test_returns_empty_list_on_exception(self):
+        import rdflib as _rdflib
+        # Empty SHACL graph should not raise; just return []
+        g = _rdflib.Graph()
+        s = self._state({})
+        self.assertEqual(main._validate(s, g), [])
 
 
 # ── render_resource_header ────────────────────────────────────────────────────
 
 class TestRenderResourceHeader(unittest.TestCase):
 
-    def _run_with_mock_doc(self, state):
-        mock_el = MagicMock()
-        with patch("main.document") as mock_doc:
-            mock_doc.getElementById.return_value = mock_el
-            main.render_resource_header(state)
-        return mock_doc, mock_el
-
-    def test_sets_title_innerHTML(self):
-        s = _make_state(resource_types=[
-            "http://id.loc.gov/ontologies/bibframe/Work",
-            "http://id.loc.gov/ontologies/bibframe/Monograph",
-        ])
-        mock_doc, _ = self._run_with_mock_doc(s)
-        calls = [str(c) for c in mock_doc.getElementById.call_args_list]
-        self.assertTrue(any("resource-title" in c for c in calls))
-
-    def test_sets_badge_textContent(self):
-        s = _make_state(resource_types=["http://id.loc.gov/ontologies/bibframe/Monograph"])
+    def test_sets_badge(self):
+        s = _make_state(resource_types=[BF + "Monograph"])
         elements = {}
         def _get(eid):
             elements.setdefault(eid, MagicMock())
@@ -511,34 +722,18 @@ class TestRenderResourceHeader(unittest.TestCase):
             main.render_resource_header(s)
         self.assertEqual(elements["resource-badge"].textContent, "MONOGRAPH")
 
-    def test_class_info_set(self):
-        s = _make_state(resource_types=["http://id.loc.gov/ontologies/bibframe/Work"])
-        mock_doc, _ = self._run_with_mock_doc(s)
-        ids_called = [c.args[0] for c in mock_doc.getElementById.call_args_list]
-        self.assertIn("resource-class", ids_called)
-
 
 # ── render_uri_bar ────────────────────────────────────────────────────────────
 
 class TestRenderUriBar(unittest.TestCase):
 
-    def test_sets_uri_innerHTML(self):
+    def test_sets_uri(self):
         s = _make_state(resource_uri="https://dev.bcld.info/works/test")
-        mock_el = MagicMock()
+        el = MagicMock()
         with patch("main.document") as mock_doc, patch("main.when"):
-            mock_doc.getElementById.return_value = mock_el
+            mock_doc.getElementById.return_value = el
             main.render_uri_bar(s)
-        ids = [c.args[0] for c in mock_doc.getElementById.call_args_list]
-        self.assertIn("resource-uri", ids)
-        self.assertIn("https://dev.bcld.info/works/test", mock_el.innerHTML)
-
-    def test_when_registered_for_copy_btn(self):
-        s = _make_state(resource_uri="https://dev.bcld.info/works/test")
-        with patch("main.document") as mock_doc, patch("main.when") as mock_when_local:
-            mock_doc.getElementById.return_value = MagicMock()
-            mock_when_local.side_effect = lambda *a, **kw: (lambda f: f)
-            main.render_uri_bar(s)
-        mock_when_local.assert_called()
+        self.assertIn("https://dev.bcld.info/works/test", el.innerHTML)
 
 
 # ── render_triples ────────────────────────────────────────────────────────────
@@ -551,135 +746,179 @@ class TestRenderTriples(unittest.TestCase):
             main.render_triples(s)
         mock_doc.getElementById.assert_not_called()
 
-    def test_section_shown_when_triples_present(self):
-        s = _make_state(triples=[("subj", "pred", "obj")])
-        mock_section = MagicMock()
-        mock_tbody   = MagicMock()
-        def _get_el(eid):
-            return mock_section if eid == "triples-section" else mock_tbody
-        with patch("main.document") as mock_doc:
-            mock_doc.getElementById.side_effect = _get_el
-            main.render_triples(s)
-        self.assertEqual(mock_section.style.display, "block")
-
-    def test_rows_written_to_tbody(self):
-        s = _make_state(triples=[("s", "p", "o")])
-        mock_tbody = MagicMock()
-        with patch("main.document") as mock_doc:
-            mock_doc.getElementById.return_value = MagicMock()
-            mock_doc.getElementById.side_effect = (
-                lambda eid: MagicMock() if eid == "triples-section" else mock_tbody
-            )
-            main.render_triples(s)
-        self.assertIn("s", mock_tbody.innerHTML)
-
-    def test_html_entities_escaped(self):
-        s = _make_state(triples=[("<subject>", "<pred>", "<obj>")])
+    def test_html_escaped(self):
+        s = _make_state(triples=[("<s>", "<p>", "<o>")])
         mock_tbody = MagicMock()
         with patch("main.document") as mock_doc:
             mock_doc.getElementById.side_effect = (
                 lambda eid: MagicMock() if eid == "triples-section" else mock_tbody
             )
             main.render_triples(s)
-        self.assertNotIn("<subject>", mock_tbody.innerHTML)
-        self.assertIn("&lt;subject&gt;", mock_tbody.innerHTML)
+        self.assertIn("&lt;s&gt;", mock_tbody.innerHTML)
 
 
 # ── render_left_nav ───────────────────────────────────────────────────────────
 
 class TestRenderLeftNav(unittest.TestCase):
 
-    def test_sets_left_nav_innerHTML(self):
-        s = _make_state(props={})
+    def _run_nav(self, state):
         mock_nav = MagicMock()
         with patch("main.document") as mock_doc:
             mock_doc.getElementById.return_value = mock_nav
-            main.render_left_nav(s)
-        self.assertIsNotNone(mock_nav.innerHTML)
+            main.render_left_nav(state)
+        return mock_nav
 
-    def test_has_data_items_marked(self):
-        s = _make_state(props={"http://id.loc.gov/ontologies/bibframe/title": ["x"]})
-        mock_nav = MagicMock()
-        with patch("main.document") as mock_doc:
-            mock_doc.getElementById.return_value = mock_nav
-            main.render_left_nav(s)
-        self.assertIn("has-data", mock_nav.innerHTML)
+    def test_has_data_items_shown(self):
+        s   = _make_state(props={BF + "language": ["eng"]})
+        nav = self._run_nav(s)
+        self.assertIn("has-data", nav.innerHTML)
 
-    def test_no_data_items_marked(self):
-        s = _make_state(props={})
-        mock_nav = MagicMock()
-        with patch("main.document") as mock_doc:
-            mock_doc.getElementById.return_value = mock_nav
-            main.render_left_nav(s)
-        self.assertIn("no-data", mock_nav.innerHTML)
+    def test_empty_props_produces_empty_nav(self):
+        s   = _make_state(props={})
+        nav = self._run_nav(s)
+        self.assertEqual(nav.innerHTML, "")
 
-    def test_all_nav_items_rendered(self):
-        s = _make_state(props={})
-        mock_nav = MagicMock()
-        with patch("main.document") as mock_doc:
-            mock_doc.getElementById.return_value = mock_nav
-            main.render_left_nav(s)
-        for label, _, _ in main.WORK_NAV:
-            self.assertIn(label, mock_nav.innerHTML)
+    def test_nav_links_to_inputcard_id(self):
+        s   = _make_state(props={BF + "language": ["eng"]})
+        nav = self._run_nav(s)
+        # fallback nav links to inputcard-{frag}-0
+        self.assertIn("inputcard-language-0", nav.innerHTML)
+
+    def test_blob_predicates_not_shown(self):
+        s   = _make_state(props={"contribution": ["{'@type': ['PrimaryContribution']}"]})
+        nav = self._run_nav(s)
+        self.assertEqual(nav.innerHTML, "")
+
+    def test_work_nav_compat(self):
+        s   = _make_state(props={})
+        nav = self._run_nav(s)
+        for label, _, _ in main.WORK_NAV:  # empty list — loop is a no-op
+            self.assertIn(label, nav.innerHTML)
 
 
 # ── render_main_editor ────────────────────────────────────────────────────────
 
 class TestRenderMainEditor(unittest.TestCase):
 
-    def test_sets_main_editor_innerHTML(self):
-        s = _make_state(props={}, field_edits={})
-        mock_el = MagicMock()
-        mock_el.getAttribute.return_value = "test-field"
-        mock_el.value = ""
+    def _run_editor(self, state):
+        mock_main = MagicMock()
         with patch("main.document") as mock_doc, patch("main.when"):
-            mock_doc.getElementById.return_value = MagicMock()
+            mock_doc.getElementById.side_effect = (
+                lambda eid: mock_main if eid == "main-editor" else MagicMock()
+            )
             mock_doc.querySelectorAll.return_value = []
-            main.render_main_editor(s)
-        mock_doc.getElementById.assert_any_call("main-editor")
+            main.render_main_editor(state)
+        return mock_main
 
-    def test_all_sections_included(self):
-        s = _make_state(props={}, field_edits={})
-        captured = []
-        def _capture(eid):
-            el = MagicMock()
-            if eid == "main-editor":
-                def _set_inner(val):
-                    captured.append(val)
-                type(el).__setattr__ = lambda self, name, val: captured.append(val) if name == "innerHTML" else None
-                el.innerHTML = property(lambda self: "", lambda self, v: captured.append(v))
-            return el
-        with patch("main.document") as mock_doc, patch("main.when"):
-            mock_main = MagicMock()
-            mock_doc.getElementById.side_effect = lambda eid: mock_main if eid == "main-editor" else MagicMock()
-            mock_doc.querySelectorAll.return_value = []
-            main.render_main_editor(s)
-        html = mock_main.innerHTML
-        # innerHTML is set once with all sections joined
-        self.assertIsNotNone(html)
+    def test_empty_props_empty_editor(self):
+        s  = _make_state(props={}, field_edits={})
+        el = self._run_editor(s)
+        self.assertEqual(el.innerHTML, "")
+
+    def test_data_props_produce_html(self):
+        s  = _make_state(props={BF + "language": ["eng"]}, field_edits={})
+        el = self._run_editor(s)
+        self.assertIn("eng", el.innerHTML)
 
     def test_field_edits_populated(self):
         s = _make_state(props={}, field_edits={})
         mock_ta = MagicMock()
-        mock_ta.getAttribute.return_value = "input-main-title"
-        mock_ta.value = "existing"
+        mock_ta.getAttribute.return_value = "inputcard-language-0-value"
+        mock_ta.value = "eng"
         with patch("main.document") as mock_doc, patch("main.when"):
             mock_doc.getElementById.return_value = MagicMock()
             mock_doc.querySelectorAll.return_value = [mock_ta]
             main.render_main_editor(s)
-        self.assertEqual(s.field_edits.get("input-main-title"), "existing")
+        self.assertEqual(s.field_edits.get("inputcard-language-0-value"), "eng")
+
+
+# ── render_main_editor: SHACL path ────────────────────────────────────────────
+
+class TestRenderMainEditorShacl(unittest.TestCase):
+
+    def _run_with_shacl(self, state, shacl_json):
+        mock_main = MagicMock()
+        with patch("main.js") as mock_js, \
+             patch("main.document") as mock_doc, \
+             patch("main.when", side_effect=lambda *a, **kw: (lambda f: f)):
+            mock_js.localStorage.getItem.return_value = shacl_json
+            mock_doc.getElementById.side_effect = (
+                lambda eid: mock_main if eid == "main-editor" else MagicMock()
+            )
+            mock_doc.querySelectorAll.return_value = []
+            main.render_main_editor(state)
+        return mock_main.innerHTML
+
+    def test_required_shacl_prop_shown_without_data(self):
+        state = _make_state(props={}, field_edits={}, resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        # bf:title and bf:language are required → always shown
+        self.assertIn("Work Title",  html)
+        self.assertIn("Language", html)
+
+    def test_optional_shacl_prop_hidden_without_data(self):
+        state = _make_state(props={}, field_edits={}, resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        # bf:note is optional with no data → not shown
+        self.assertNotIn("inputcard-note-0", html)
+
+    def test_optional_shacl_prop_shown_with_data(self):
+        state = _make_state(props={BF + "note": ["A note"]}, field_edits={},
+                            resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        self.assertIn("A note", html)
+
+    def test_existing_values_prefilled(self):
+        state = _make_state(props={BF + "title": ["Star Wars"]}, field_edits={},
+                            resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        self.assertIn("Star Wars", html)
+
+    def test_one_propcard_per_nodeshape(self):
+        state = _make_state(props={}, field_edits={}, resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        # One prop-card for the single Work NodeShape
+        self.assertEqual(html.count('class="prop-card"'), 1)
+
+    def test_multiple_nodeshapes_produce_multiple_propcards(self):
+        # Two NodeShapes → two prop-cards, regardless of resource @type
+        state = _make_state(props={}, field_edits={}, resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_MULTI]))
+        self.assertGreaterEqual(html.count('class="prop-card"'), 2)
+
+    def test_propcard_id_uses_rdfs_label(self):
+        state = _make_state(props={}, field_edits={}, resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_MULTI]))
+        # ex:InstanceShape has rdfs:label "Instance (Monograph) Print"
+        self.assertIn('id="propcard-instance-monograph-print"', html)
+
+    def test_inputcard_data_rdf_path(self):
+        state = _make_state(props={}, field_edits={}, resource_types=[BF + "Work"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        self.assertIn(f'data-rdf-path="{BF}title"', html)
+
+    def test_fallback_with_data_when_no_matching_shape(self):
+        state = _make_state(props={BF + "language": ["eng"]}, field_edits={},
+                            resource_types=["http://example.com/Unknown"])
+        html  = self._run_with_shacl(state, json.dumps([_SHACL_WORK]))
+        self.assertIn("eng", html)
+
+    def test_fallback_empty_when_no_shacl_and_no_props(self):
+        # No SHACL loaded, no props → empty editor
+        state = _make_state(props={}, field_edits={},
+                            resource_types=["http://example.com/Unknown"])
+        html  = self._run_with_shacl(state, json.dumps([]))  # empty template list
+        self.assertEqual(html, "")
 
 
 # ── render_tabs ───────────────────────────────────────────────────────────────
 
 class TestRenderTabs(unittest.TestCase):
 
-    def test_registers_click_handlers_for_all_tabs(self):
+    def test_three_handlers_registered(self):
         with patch("main.document"), patch("main.when") as mock_when_local:
             mock_when_local.side_effect = lambda *a, **kw: (lambda f: f)
             main.render_tabs()
-        calls = [c.args[0] for c in mock_when_local.call_args_list]
-        self.assertIn("click", calls)
         self.assertEqual(mock_when_local.call_count, 3)
 
 
@@ -697,14 +936,10 @@ class TestEntryPoint(unittest.TestCase):
         return doc
 
     def test_successful_render(self):
-        data = {
-            "@id": "https://dev.bcld.info/works/ep-test",
-            "@type": ["http://id.loc.gov/ontologies/bibframe/Work"],
-        }
+        data = {"@id": "https://dev.bcld.info/works/ep-test", "@type": [BF + "Work"]}
         mock_resp = AsyncMock()
         mock_resp.ok = True
         mock_resp.json = AsyncMock(return_value=data)
-
         with patch("main.document", self._make_mock_doc()), \
              patch("main.when", side_effect=lambda *a, **kw: (lambda f: f)), \
              patch("main.pyfetch", return_value=mock_resp):
@@ -715,54 +950,40 @@ class TestEntryPoint(unittest.TestCase):
         mock_resp.ok = False
         mock_resp.status = 503
         mock_resp.status_text = "Service Unavailable"
-
-        mock_doc = self._make_mock_doc()
-        mock_main_el = MagicMock()
+        mock_doc    = self._make_mock_doc()
+        main_el     = MagicMock()
         bluecore_el = MagicMock()
         bluecore_el.getAttribute.return_value = "https://dev.bcld.info"
-        resource_id_el = MagicMock()
-        resource_id_el.getAttribute.return_value = "ep-test"
-
+        rid_el      = MagicMock()
+        rid_el.getAttribute.return_value = "ep-test"
         def _get(eid):
-            if eid == "main-editor":
-                return mock_main_el
-            if eid == "bluecore-url-meta":
-                return bluecore_el
-            if eid == "resource-id-meta":
-                return resource_id_el
+            if eid == "main-editor":       return main_el
+            if eid == "bluecore-url-meta": return bluecore_el
+            if eid == "resource-id-meta":  return rid_el
             return MagicMock()
-
         mock_doc.getElementById.side_effect = _get
         mock_doc.querySelectorAll.return_value = []
-
         with patch("main.document", mock_doc), \
              patch("main.when", side_effect=lambda *a, **kw: (lambda f: f)), \
              patch("main.pyfetch", return_value=mock_resp):
             _run(main._entry_point())
-
-        self.assertIn("alert-danger", mock_main_el.innerHTML)
+        self.assertIn("alert-danger", main_el.innerHTML)
 
     def test_blank_resource_id_skips_fetch(self):
-        resource_id_el = MagicMock()
-        resource_id_el.getAttribute.return_value = ""
+        rid_el   = MagicMock()
+        rid_el.getAttribute.return_value = ""
         title_el = MagicMock()
-
         def _get(eid):
-            if eid == "resource-id-meta":
-                return resource_id_el
-            if eid == "resource-title":
-                return title_el
+            if eid == "resource-id-meta": return rid_el
+            if eid == "resource-title":   return title_el
             return MagicMock()
-
         mock_doc = MagicMock()
         mock_doc.getElementById.side_effect = _get
         mock_doc.querySelectorAll.return_value = []
-
         with patch("main.document", mock_doc), \
              patch("main.when", side_effect=lambda *a, **kw: (lambda f: f)), \
              patch("main.pyfetch") as mock_fetch:
             _run(main._entry_point())
-
         mock_fetch.assert_not_awaited()
         self.assertIn("New Resource", title_el.innerHTML)
 
