@@ -1,0 +1,60 @@
+<!-- ═══════════════════ SEARCH RESULTS ═══════════════════ -->
+<div class="container-fluid px-4 pt-3">
+
+  {% if error %}
+  <div class="alert alert-danger">{{ error }}</div>
+
+  {% elif not search_q %}
+  <p class="text-muted mt-3">Enter a search term above.</p>
+
+  {% elif not results %}
+  <p class="text-muted mt-3">No results found for &ldquo;{{ search_q }}&rdquo;.</p>
+
+  {% else %}
+  <table class="table table-bordered table-sm align-middle">
+    <thead class="table-light">
+      <tr>
+        <th style="width:35%;">Label / ID</th>
+        <th>Class</th>
+        <th style="width:10%;">Group</th>
+        <th style="width:10%;">Modified</th>
+        <th class="text-end" style="width:8%;">
+          <button class="btn btn-outline-secondary btn-sm py-0">
+            Sort by <i class="bi bi-caret-down-fill"></i>
+          </button>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr>
+        <td>
+          <div>{{ r.label }}</div>
+          <div><small class="text-muted font-monospace" style="font-size:.78rem;">{{ r.uri }}</small></div>
+        </td>
+        <td style="font-size:.85rem;">
+          {% for t in r.types %}
+          <div>{{ t }}</div>
+          {% endfor %}
+        </td>
+        <td>Blue Core</td>
+        <td style="font-size:.85rem; white-space:nowrap;">{{ r.modified }}</td>
+        <td class="text-end text-nowrap">
+          <a href="/sinopia/editor/{{ r.uuid }}" class="btn btn-link btn-sm p-0 me-1" title="View">
+            <i class="bi bi-eye-fill text-primary fs-5"></i>
+          </a>
+          <a href="/sinopia/editor/{{ r.uuid }}" class="btn btn-link btn-sm p-0 me-1" title="Edit">
+            <i class="bi bi-pencil-fill text-primary fs-5"></i>
+          </a>
+          <button class="btn btn-link btn-sm p-0" title="Copy URI"
+                  onclick="navigator.clipboard.writeText('{{ r.uri }}')">
+            <i class="bi bi-copy text-primary fs-5"></i>
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+</div>

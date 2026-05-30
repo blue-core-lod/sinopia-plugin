@@ -1,23 +1,26 @@
 <!-- ═══════════════════ SEARCH ═══════════════════ -->
-<div class="d-flex align-items-center gap-2">
+{% set _sq = search_q | default('') %}
+{% set _ss = search_source | default('bluecore') %}
+<form method="get" action="/sinopia/search" class="d-flex align-items-center gap-2">
   <span class="fw-semibold small">
     Search
-    <button class="btn btn-link btn-sm p-0 ms-1" title="Search help">
+    <button type="button" class="btn btn-link btn-sm p-0 ms-1" title="Search help">
       <i class="bi bi-info-circle-fill text-dark" style="font-size:.9rem;"></i>
     </button>
   </span>
 
-  <select class="form-select form-select-sm" id="search-source" style="width:140px;">
-    <option value="sinopia" selected>Sinopia</option>
-    <option value="loc">Library of Congress</option>
-    <option value="worldcat">WorldCat</option>
+  <select class="form-select form-select-sm" name="source" id="search-source" style="width:140px;">
+    <option value="bluecore" {% if _ss == 'bluecore' %}selected{% endif %}>Blue Core</option>
+    <option value="loc"      {% if _ss == 'loc' %}selected{% endif %}>Library of Congress</option>
+    <option value="sinopia"  {% if _ss == 'sinopia' %}selected{% endif %}>Sinopia Classic</option>
+    <option value="sharevde" {% if _ss == 'sharevde' %}selected{% endif %}>ShareVDE</option>
   </select>
 
   <div class="input-group" style="width:340px;">
-    <input type="text" id="search-input" class="form-control form-control-sm"
-           placeholder="" aria-label="Search">
-    <button class="btn btn-outline-secondary btn-sm" type="button" id="search-btn">
+    <input type="text" name="q" id="search-input" class="form-control form-control-sm"
+           value="{{ _sq }}" placeholder="" aria-label="Search">
+    <button class="btn btn-outline-secondary btn-sm" type="submit" id="search-btn">
       <i class="bi bi-search"></i>
     </button>
   </div>
-</div>
+</form>
