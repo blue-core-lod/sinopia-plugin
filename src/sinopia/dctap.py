@@ -23,7 +23,7 @@ def _parse_zip(zip_bytes: bytes) -> list[dict]:
                 continue
             entries.append({
                 "filename": filename,
-                "group":    folder.replace(" DCTAP", ""),
+                "type":     folder.replace(" DCTAP", ""),
             })
     return entries
 

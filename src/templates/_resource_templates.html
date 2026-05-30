@@ -37,7 +37,7 @@
     <thead class="table-light">
       <tr>
         <th>Filename</th>
-        <th>Group</th>
+        <th>Type</th>
         <th>Tag</th>
       </tr>
     </thead>
@@ -45,7 +45,7 @@
       {% for t in templates %}
       <tr>
         <td class="font-monospace">{{ t.filename }}</td>
-        <td>{{ t.group }}</td>
+        <td>{{ t.type }}</td>
         <td><span class="badge bg-secondary font-monospace">{{ bf_interop_version }}</span></td>
       </tr>
       {% endfor %}
