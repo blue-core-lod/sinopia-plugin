@@ -274,6 +274,11 @@ async def pyscript_main_py():
     return FileResponse(PLUGIN_DIR / "src" / "main.py", media_type="text/plain")
 
 
+@app.get("/sinopia/dctap-shacl.py")
+async def dctap_shacl_module():
+    return FileResponse(PLUGIN_DIR / "src" / "dctap_shacl.py", media_type="text/plain")
+
+
 @app.get("/sinopia/editor/{resource_id}", response_class=HTMLResponse)
 async def editor(request: Request, resource_id: str):
     return templates.TemplateResponse(

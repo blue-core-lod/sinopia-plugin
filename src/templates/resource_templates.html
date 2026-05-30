@@ -3,35 +3,31 @@
 {% block title %}Resource Templates - Sinopia Blue Core{% endblock %}
 
 {% block head %}
-<script type="py" config='{"packages": ["/static/wheels/rdflib-7.6.0-py3-none-any.whl", "/static/wheels/dctap2shacl-0.2.0-py3-none-any.whl"]}'>
-from pyodide.http import pyfetch
-from dctap2shacl import DCTap2SHACLTransformer
-from pyscript import when
+<meta name="bf-interop-version" content="{{ bf_interop_version }}">
+<script type="py" config='{"packages": ["/static/wheels/rdflib-7.6.0-py3-none-any.whl", "/static/wheels/dctap2shacl-0.2.0-py3-none-any.whl"], "files": {"/sinopia/dctap-shacl.py": "./dctap_shacl.py"}}'>
+import dctap_shacl
 import js
+from pyscript import when
 
 @when("click", ".btn-dctap-shacl")
-async def convert_to_shacl(event):
+async def on_convert(event):
     el = event.target.closest("[data-filename]")
     if not el:
         return
     filename = el.getAttribute("data-filename")
+    version = js.document.querySelector('meta[name="bf-interop-version"]').getAttribute("content")
 
     js.document.getElementById("shacl-modal-label").textContent = filename
-    js.document.getElementById("shacl-output").textContent = "Converting…"
+    js.document.getElementById("shacl-output").textContent = "Loading…"
     js.bootstrap.Modal.getOrCreateInstance(
         js.document.getElementById("shacl-modal")
     ).show()
 
-    resp = await pyfetch(f"/sinopia/api/dctap/tsv?filename={filename}")
-    if not resp.ok:
-        js.document.getElementById("shacl-output").textContent = f"Error {resp.status}: could not fetch {filename}"
-        return
-
-    tsv_text = await resp.string()
-    transformer = DCTap2SHACLTransformer()
-    transformer.run(tsv_text)
-    shacl = transformer.graph.serialize(format="turtle")
-    js.document.getElementById("shacl-output").textContent = shacl
+    try:
+        shacl = await dctap_shacl.get_shacl(version, filename)
+        js.document.getElementById("shacl-output").textContent = shacl
+    except Exception as exc:
+        js.document.getElementById("shacl-output").textContent = f"Error: {exc}"
 </script>
 {% endblock %}
 
