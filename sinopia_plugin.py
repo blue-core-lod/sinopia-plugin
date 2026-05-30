@@ -20,7 +20,7 @@ from sinopia.config import (
     PLUGIN_DIR,
     SINOPIA_VERSION,
 )
-from sinopia.dctap import fetch_templates
+from sinopia.dctap import fetch_templates, fetch_tsv_content
 from sinopia.loc import _parse_loc_feed
 from sinopia.rdf import _detect_format, _parse_rdf, _shacl_violations
 
@@ -72,6 +72,18 @@ async def resource_templates(request: Request):
             "fetch_error":        fetch_error,
         },
     )
+
+
+@app.get("/sinopia/api/dctap/tsv")
+async def dctap_tsv(filename: str):
+    """Return the raw TSV content of a named DCTAP file from the configured release."""
+    if not BF_INTEROP_VERSION:
+        raise HTTPException(status_code=503, detail="BF_INTEROP_VERSION not configured")
+    content = await fetch_tsv_content(BF_INTEROP_VERSION, filename)
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"{filename} not found in {BF_INTEROP_VERSION}")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content, media_type="text/tab-separated-values")
 
 
 @app.get("/sinopia/api/resource/{resource_id}")
