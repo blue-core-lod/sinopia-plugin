@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta id="resource-id-meta" name="resource-id" content="{{ resource_id }}">
+  <meta id="bluecore-url-meta" name="bluecore-url" content="{{ bluecore_url }}">
+  <title>Sinopia - Blue Core</title>
+
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
+  <script type="module"
+    src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+  <link rel="stylesheet"
+    href="https://pyscript.net/releases/2024.11.1/core.css">
+
+  <link rel="stylesheet" href="{{ url_for('static', path='default.css') }}">
+</head>
+<body>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<div class="sinopia-header">
+  <div class="logo">
+    <i class="bi bi-gear-wide-connected me-2"></i>
+    <span class="bc-blue">Blue Core</span>
+    <span> | SINOPIA - {% if environment %}{{ environment }}{% else %}LOCAL Development{% endif %}</span>
+  </div>
+  <div class="user-nav small">
+    <span>jpnelson</span>
+    <span class="mx-2">•</span>
+    <a href="#">Help</a>
+    <span class="mx-2">•</span>
+    <a href="#">Logout</a>
+  </div>
+</div>
+
+<!-- ═══════════════════ SUB-NAV ═══════════════════ -->
+<div class="sinopia-subnav">
+  <ul class="nav">
+    <li class="nav-item"><a class="nav-link" href="#">Dashboard</a></li>
+    <li class="nav-item"><a class="nav-link active" href="#">Editor</a></li>
+    <li class="nav-item"><a class="nav-link" href="#">Resource Templates</a></li>
+    <li class="nav-item">
+      <a class="nav-link" href="#">Actions <i class="bi bi-chevron-down" style="font-size:.7rem;"></i></a>
+    </li>
+  </ul>
+</div>
+
+<!-- ═══════════════════ EDITOR SHELL ═══════════════════ -->
+<div class="container-fluid px-4 pt-3">
+
+  <!-- Resource title row -->
+  <div class="d-flex align-items-center mb-1 flex-wrap gap-1">
+    <h4 id="resource-title" class="mb-0 me-1 fw-bold">
+      <span class="spinner-border spinner-border-sm text-secondary me-2" role="status"></span>
+      Loading…
+    </h4>
+    <span id="resource-badge" class="resource-type-badge">WORK</span>
+    <button class="btn btn-sm btn-link p-0 ms-1 text-secondary icon-btn"
+            title="Duplicate"><i class="bi bi-clipboard"></i></button>
+    <button class="btn btn-sm btn-link p-0 text-secondary icon-btn"
+            title="Preview"><i class="bi bi-eye"></i></button>
+    <div class="ms-auto d-flex gap-2">
+      <button class="btn btn-sm btn-outline-secondary px-3">Close</button>
+      <button class="btn btn-sm btn-primary px-4">Save</button>
+    </div>
+  </div>
+
+  <!-- URI row -->
+  <div class="uri-bar mb-2 d-flex align-items-center flex-wrap gap-1">
+    <span>URI for this resource:</span>
+    <span id="resource-uri" class="font-monospace">&lt;loading…&gt;</span>
+    <button id="copy-uri-btn" class="btn btn-sm btn-outline-primary py-0 px-2">
+      <i class="bi bi-clipboard me-1"></i>Copy URI
+    </button>
+    <span class="ms-auto">
+      <a href="#" class="text-secondary small">Permissions</a>
+    </span>
+  </div>
+
+  <!-- Triples table (hidden until populated) -->
+  <div id="triples-section" class="border rounded p-3 mb-3" style="display:none;">
+    <div class="d-flex align-items-center mb-2 flex-wrap gap-2">
+      <small class="text-muted">
+        Unable to load the entire resource. The unused triples are listed below.
+      </small>
+      <span class="ms-2 me-1 small">View as:</span>
+      <select class="form-select form-select-sm" style="width:auto;">
+        <option>Table (RDF)</option>
+      </select>
+    </div>
+    <table class="table table-sm table-bordered mb-0" style="font-size:.8rem;">
+      <thead class="table-light">
+        <tr>
+          <th style="width:35%">Subject</th>
+          <th style="width:35%">Predicate</th>
+          <th style="width:30%">Object</th>
+        </tr>
+      </thead>
+      <tbody id="triples-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Two-column layout -->
+  <div class="row g-3">
+
+    <!-- ── Left nav ── -->
+    <div class="col-md-3">
+      <ul class="nav nav-tabs editor-tabs mb-3" id="editor-tabs">
+        <li class="nav-item">
+          <a class="nav-link active" id="tab-nav-btn" href="#" onclick="return false;">Navigation</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" id="tab-ver-btn" href="#" onclick="return false;">Versions</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" id="tab-rel-btn" href="#" onclick="return false;">Relationships</a>
+        </li>
+      </ul>
+
+      <!-- Navigation tab content -->
+      <div id="tab-nav-content">
+        <!-- Class info -->
+        <div class="mb-3 small">
+          <div class="row mb-1">
+            <div class="col-5 text-muted">Class</div>
+            <div class="col-7" id="resource-class">—</div>
+          </div>
+          <div class="row">
+            <div class="col-5 text-muted">Optional classes</div>
+            <div class="col-7" id="optional-classes">
+              <div><input type="checkbox" class="me-1">Manuscript</div>
+              <div><input type="checkbox" class="me-1">Monograph</div>
+              <div><input type="checkbox" class="me-1">Text</div>
+            </div>
+          </div>
+        </div>
+        <!-- Property list -->
+        <div id="left-nav">
+          <div class="py-3 text-center text-muted small">
+            <span class="spinner-border spinner-border-sm me-1"></span>Loading…
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-ver-content" style="display:none;">
+        <p class="text-muted small mt-2">No versions available.</p>
+      </div>
+      <div id="tab-rel-content" style="display:none;">
+        <p class="text-muted small mt-2">No relationships found.</p>
+      </div>
+    </div>
+
+    <!-- ── Main editor ── -->
+    <div class="col-md-9">
+      <div id="main-editor">
+        <div class="py-5 text-center text-muted">
+          <span class="spinner-border text-secondary" role="status"></span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /row -->
+</div><!-- /container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- ═══════════════════ PYSCRIPT ═══════════════════ -->
+<script type="py" config="./conf.json" src="./src/main.py"></script>
+</body>
+</html>
