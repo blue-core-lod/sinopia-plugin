@@ -45,6 +45,20 @@ async def view_as_html(filename: str) -> str:
     )
 
 
+def add_to_template_graph(shacl_turtle: str) -> int:
+    """Append a SHACL Turtle string to the 'template' list in localStorage.
+
+    Deduplicates by exact string match.  Returns the resulting list length.
+    """
+    import json
+    raw = js.localStorage.getItem("template")
+    items: list[str] = json.loads(raw) if raw else []
+    if shacl_turtle not in items:
+        items.append(shacl_turtle)
+        js.localStorage.setItem("template", json.dumps(items))
+    return len(items)
+
+
 async def get_shacl(version: str, filename: str) -> str:
     """Return SHACL Turtle for a DCTAP file.
 

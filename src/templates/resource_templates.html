@@ -29,8 +29,19 @@ async def on_convert(event):
     try:
         shacl = await dctap_shacl.get_shacl(version, filename)
         js.document.getElementById("shacl-output").textContent = shacl
+        js.document.getElementById("shacl-add-status").textContent = ""
     except Exception as exc:
         js.document.getElementById("shacl-output").textContent = f"Error: {exc}"
+
+
+@when("click", "#btn-add-to-graph")
+def on_add_to_graph(event):
+    shacl = js.document.getElementById("shacl-output").textContent
+    if not shacl or shacl == "Loading…":
+        return
+    count = dctap_shacl.add_to_template_graph(shacl)
+    status = js.document.getElementById("shacl-add-status")
+    status.textContent = f"Saved — {count} item{'s' if count != 1 else ''} in graph"
 
 
 @when("click", ".btn-view-template")

@@ -159,6 +159,58 @@ class TestGetShacl(unittest.TestCase):
         self.assertIn("404", str(ctx.exception))
 
 
+# ── dctap_shacl.add_to_template_graph ────────────────────────────────────────
+
+class TestAddToTemplateGraph(unittest.TestCase):
+
+    def setUp(self):
+        _mock_js.localStorage.getItem.reset_mock()
+        _mock_js.localStorage.getItem.side_effect = None
+        _mock_js.localStorage.setItem.reset_mock()
+
+    def test_adds_first_item_returns_length_one(self):
+        _mock_js.localStorage.getItem.return_value = None
+        count = dctap_shacl.add_to_template_graph("@prefix sh: <x> .")
+        self.assertEqual(count, 1)
+
+    def test_saves_json_list_to_storage(self):
+        _mock_js.localStorage.getItem.return_value = None
+        dctap_shacl.add_to_template_graph("turtle content")
+        key, value = _mock_js.localStorage.setItem.call_args[0]
+        self.assertEqual(key, "template")
+        import json
+        self.assertEqual(json.loads(value), ["turtle content"])
+
+    def test_appends_to_existing_list(self):
+        import json
+        existing = json.dumps(["first"])
+        _mock_js.localStorage.getItem.return_value = existing
+        count = dctap_shacl.add_to_template_graph("second")
+        self.assertEqual(count, 2)
+        _, saved = _mock_js.localStorage.setItem.call_args[0]
+        self.assertEqual(json.loads(saved), ["first", "second"])
+
+    def test_does_not_add_duplicate(self):
+        import json
+        existing = json.dumps(["already here"])
+        _mock_js.localStorage.getItem.return_value = existing
+        count = dctap_shacl.add_to_template_graph("already here")
+        self.assertEqual(count, 1)
+        _mock_js.localStorage.setItem.assert_not_called()
+
+    def test_returns_correct_count_after_multiple_adds(self):
+        import json
+        _mock_js.localStorage.getItem.side_effect = [
+            None,
+            json.dumps(["a"]),
+            json.dumps(["a", "b"]),
+        ]
+        dctap_shacl.add_to_template_graph("a")
+        dctap_shacl.add_to_template_graph("b")
+        count = dctap_shacl.add_to_template_graph("c")
+        self.assertEqual(count, 3)
+
+
 # ── dctap_shacl.view_as_html ─────────────────────────────────────────────────
 
 class TestViewAsHtml(unittest.TestCase):
