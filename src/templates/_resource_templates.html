@@ -27,7 +27,7 @@
       Find a resource template
     </label>
     <input id="rt-filter" type="search" class="form-control form-control-sm"
-           placeholder="Enter id, label, group, or author"
+           placeholder="Enter filename or group"
            style="max-width:480px;" oninput="filterTemplates(this.value)">
     <span class="text-muted small" id="rt-count"></span>
   </div>
@@ -36,43 +36,17 @@
   <table class="table table-sm table-bordered align-middle" id="rt-table" style="font-size:.875rem;">
     <thead class="table-light">
       <tr>
-        <th style="min-width:200px;">Label / ID</th>
-        <th>Resource URI</th>
-        <th>Author</th>
+        <th>Filename</th>
         <th>Group</th>
-        <th>Guiding statement</th>
-        <th style="width:110px;">Actions</th>
+        <th>Tag</th>
       </tr>
     </thead>
     <tbody>
       {% for t in templates %}
       <tr>
-        <td>
-          {{ t.label }}<br>
-          <small class="text-muted font-monospace">{{ t.shape_id }}</small>
-        </td>
-        <td class="text-break" style="font-size:.8rem;">
-          {% for uri in t.targets %}
-          <div>{{ uri }}</div>
-          {% endfor %}
-        </td>
-        <td>{{ t.author }}</td>
+        <td class="font-monospace">{{ t.filename }}</td>
         <td>{{ t.group }}</td>
-        <td class="text-muted" style="font-size:.8rem;">{{ t.note }}</td>
-        <td>
-          <a href="#" class="btn btn-sm btn-outline-primary p-1 me-1" title="New resource">
-            <i class="bi bi-file-earmark-plus"></i>
-          </a>
-          <a href="#" class="btn btn-sm btn-outline-primary p-1 me-1" title="View">
-            <i class="bi bi-eye"></i>
-          </a>
-          <a href="#" class="btn btn-sm btn-outline-primary p-1 me-1" title="Edit">
-            <i class="bi bi-pencil"></i>
-          </a>
-          <a href="#" class="btn btn-sm btn-outline-primary p-1" title="Copy">
-            <i class="bi bi-copy"></i>
-          </a>
-        </td>
+        <td><span class="badge bg-secondary font-monospace">{{ bf_interop_version }}</span></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -97,11 +71,11 @@ function filterTemplates(q) {
     if (match) visible++;
   });
   const countEl = document.getElementById("rt-count");
-  if (countEl) countEl.textContent = q ? `${visible} of ${rows.length}` : "";
+  if (countEl) countEl.textContent = q ? `${visible} of ${rows.length}` : `${rows.length} templates`;
 }
 document.addEventListener("DOMContentLoaded", () => {
-  const countEl = document.getElementById("rt-count");
   const rows = document.querySelectorAll("#rt-table tbody tr");
+  const countEl = document.getElementById("rt-count");
   if (countEl && rows.length) countEl.textContent = `${rows.length} templates`;
 });
 </script>
