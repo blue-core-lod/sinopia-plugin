@@ -16,6 +16,8 @@ BLUECORE_URL     = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstri
 ENVIRONMENT      = os.environ.get("ENVIRONMENT", "")
 SINOPIA_VERSION  = os.environ.get("SINOPIA_VERSION", "4.0.0")
 
+_BCLD_HEADERS = {"User-Agent": "Sinopia Editor"}
+
 app = FastAPI(title="Sinopia Linked Data Editor", version=SINOPIA_VERSION)
 app.mount("/static", StaticFiles(directory=str(PLUGIN_DIR / "src" / "static")), name="static")
 templates = Jinja2Templates(directory=str(PLUGIN_DIR / "src" / "templates"))
@@ -267,12 +269,15 @@ async def proxy_resource(resource_id: str):
         try:
             resp = await client.get(
                 url,
-                headers={"Accept": "application/ld+json, application/json;q=0.9"},
+                params={"is_expanded": "true"},
+                headers={"Accept": "application/ld+json, application/json;q=0.9", **_BCLD_HEADERS},
                 follow_redirects=True,
             )
             resp.raise_for_status()
+            body = resp.json()
+            resource_data = body.get("data", body) if isinstance(body, dict) else body
             return JSONResponse(
-                content=resp.json(),
+                content=resource_data,
                 headers={"Cache-Control": "max-age=60"},
             )
         except httpx.HTTPStatusError as exc:
@@ -367,8 +372,8 @@ async def search(request: Request, q: str = "", source: str = "bluecore", page: 
                 try:
                     resp = await client.get(
                         f"{BLUECORE_URL}/api/search/",
-                        params={"q": q, "type": "works", "limit": PAGE_SIZE, "offset": offset},
-                        headers={"Accept": "application/json"},
+                        params={"q": q, "type": "works", "limit": PAGE_SIZE, "offset": offset, "is_expanded": "true"},
+                        headers={"Accept": "application/json", **_BCLD_HEADERS},
                     )
                     resp.raise_for_status()
                     data = resp.json()
