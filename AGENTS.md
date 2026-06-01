@@ -106,6 +106,7 @@ Runs entirely in browser (Python via [Pyodide][PYODIDE]/[PyScript][PYSCRIPT]).
 - Integration tests in `tests/test_integration.py` (HTML rendering, structure) — 10 tests
 - Run all tests: `uv run pytest tests/ -q`
 - **IMPORTANT**: Always run tests before git commit
+- **IMPORTANT**: Create PRs and wait for user review before merging. Never allow auto-merge or merge without explicit user approval.
 
 ## File Layout
 
