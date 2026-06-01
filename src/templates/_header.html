@@ -5,7 +5,7 @@
     <span class="medium fw-semibold" style="opacity:.85;"> SINOPIA | {% if environment %}{{ environment }}{% else %}LOCAL Development{% endif %}</span>
   </div>
   <div class="user-nav small">
-    <span>jpnelson</span>
+    <span class="mx-2">{% if user %}{{ user.username }}{% endif %}</span>
     <span class="mx-2">•</span>
     <a href="#">Help</a>
     <span class="mx-2">•</span>

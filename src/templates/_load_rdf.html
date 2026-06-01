@@ -1,36 +1,145 @@
 <!-- ═══════════════════ LOAD RDF ═══════════════════ -->
 <div class="container-fluid px-4 pt-4">
 
-  <h4 class="mb-1">Load RDF into Editor</h4>
-  <p class="text-muted mb-2" style="font-size:.9rem;">
-    RDF (Accepts JSON-LD, Turtle, TriG, N-Triples, N-Quads, and Notation3 (N3))
+  <h4 class="mb-1">Load RDF</h4>
+  <p class="text-muted mb-3" style="font-size:.9rem;">
+    Accepts Turtle, JSON-LD, RDF/XML, TriG, N-Triples, N-Quads, and N3
   </p>
 
   <form method="post" action="/sinopia/load">
-    <!-- RDF input -->
-    <div class="mb-3">
-      <textarea class="form-control font-monospace" id="rdf-input" name="rdf"
-                rows="15" style="font-size:.82rem; resize:vertical;"
-                placeholder="For example:
-<> <http://id.loc.gov/ontologies/bibframe/mainTitle> &quot;Tractatus Logico-Philosophicus&quot;@eng .
-<> <http://sinopia.io/vocabulary/hasResourceTemplate> &quot;resourceTemplate:bf2:WorkTitle&quot; .
-<> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Title> ."></textarea>
+
+    <!-- Input mode tabs -->
+    <ul class="nav nav-tabs mb-0" id="rdfInputTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link {% if not rdf_url %}active{% endif %}"
+                id="paste-tab-btn" data-bs-toggle="tab" data-bs-target="#paste-pane"
+                type="button" role="tab">Paste RDF</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link {% if rdf_url %}active{% endif %}"
+                id="url-tab-btn" data-bs-toggle="tab" data-bs-target="#url-pane"
+                type="button" role="tab">Load from URL</button>
+      </li>
+    </ul>
+
+    <div class="tab-content border border-top-0 rounded-bottom p-3 mb-3">
+
+      <!-- Paste pane -->
+      <div class="tab-pane fade {% if not rdf_url %}show active{% endif %}"
+           id="paste-pane" role="tabpanel">
+        <textarea class="form-control font-monospace" id="rdf-input" name="rdf"
+                  rows="12" style="font-size:.82rem; resize:vertical;"
+                  placeholder="For example:&#10;<> <http://id.loc.gov/ontologies/bibframe/mainTitle> &quot;Tractatus Logico-Philosophicus&quot;@eng .&#10;<> <http://sinopia.io/vocabulary/hasResourceTemplate> &quot;resourceTemplate:bf2:WorkTitle&quot; .&#10;<> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Title> .">{{ rdf or '' }}</textarea>
+      </div>
+
+      <!-- URL pane -->
+      <div class="tab-pane fade {% if rdf_url %}show active{% endif %}"
+           id="url-pane" role="tabpanel">
+        <label for="rdf-url" class="form-label mb-1" style="font-size:.9rem;">
+          RDF document URL
+        </label>
+        <input type="url" class="form-control" id="rdf-url" name="rdf_url"
+               value="{{ rdf_url or '' }}"
+               placeholder="https://example.com/works/abc.ttl">
+        <div class="form-text">The server will fetch and parse this URL.</div>
+      </div>
+
     </div>
 
     <!-- Base URI -->
     <div class="mb-2">
       <label for="base-uri" class="form-label mb-1" style="font-size:.9rem;">
-        Base URI (Omit brackets. If base URI is &lt;&gt;, leave blank.)
+        Base URI <span class="text-muted">(optional — if base URI is &lt;&gt;, leave blank)</span>
       </label>
       <input type="text" class="form-control" id="base-uri" name="base_uri"
-             placeholder="For example: https://dev.bcld.info/works/ed1213b5-1ccb-47e8-acd8-29db01a7e1eb">
+             value="{{ base_uri or '' }}"
+             placeholder="https://dev.bcld.info/works/ed1213b5-1ccb-47e8-acd8-29db01a7e1eb">
     </div>
 
-    <p class="text-muted mb-3" style="font-size:.9rem;">
-      Clicking &ldquo;Submit&rdquo; will create a new resource that can be saved in Sinopia.
-    </p>
+    <!-- SHACL shapes URL -->
+    <div class="mb-3">
+      <label for="shapes-url" class="form-label mb-1" style="font-size:.9rem;">
+        SHACL shapes URL <span class="text-muted">(optional — leave blank to skip validation)</span>
+      </label>
+      <input type="url" class="form-control" id="shapes-url" name="shapes_url"
+             value="{{ shapes_url or '' }}"
+             placeholder="https://example.com/shapes/bibframe.ttl">
+    </div>
 
-    <button type="submit" class="btn btn-secondary">Submit</button>
+    <button type="submit" class="btn btn-secondary">Load &amp; Validate</button>
   </form>
+
+  <!-- ── Results ── -->
+
+  {% if fetch_error %}
+  <div class="alert alert-danger mt-4" role="alert">
+    <i class="bi bi-x-circle-fill me-1"></i>
+    <strong>Fetch error:</strong> {{ fetch_error }}
+  </div>
+
+  {% elif parse_error %}
+  <div class="alert alert-danger mt-4" role="alert">
+    <i class="bi bi-x-circle-fill me-1"></i>
+    <strong>Parse error:</strong> {{ parse_error }}
+  </div>
+
+  {% elif triple_count %}
+  <div class="alert alert-success mt-4" role="alert">
+    <i class="bi bi-check-circle-fill me-1"></i>
+    Parsed <strong>{{ triple_count }}</strong> triple{{ 's' if triple_count != 1 else '' }}.
+  </div>
+
+  {% if validation %}
+
+    {% if validation.error %}
+    <div class="alert alert-warning" role="alert">
+      <i class="bi bi-exclamation-triangle-fill me-1"></i>
+      <strong>Validation error:</strong> {{ validation.error }}
+    </div>
+
+    {% elif validation.conforms %}
+    <div class="alert alert-success" role="alert">
+      <i class="bi bi-shield-check me-1"></i>
+      <strong>Conforms</strong> — no SHACL violations found.
+    </div>
+
+    {% else %}
+    <div class="alert alert-warning" role="alert">
+      <i class="bi bi-exclamation-triangle-fill me-1"></i>
+      <strong>{{ validation.violations | length }} SHACL violation{{ 's' if validation.violations | length != 1 else '' }} found.</strong>
+    </div>
+
+    {% if validation.violations %}
+    <table class="table table-sm table-bordered" style="font-size:.85rem;">
+      <thead class="table-light">
+        <tr>
+          <th style="width:90px;">Severity</th>
+          <th>Focus Node</th>
+          <th>Path</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in validation.violations %}
+        <tr>
+          <td>
+            <span class="badge
+              {% if v.severity == 'Violation' %}bg-danger
+              {% elif v.severity == 'Warning' %}bg-warning text-dark
+              {% else %}bg-info text-dark{% endif %}">{{ v.severity }}</span>
+          </td>
+          <td class="text-break font-monospace" style="font-size:.78rem;">{{ v.focus_node }}</td>
+          <td class="font-monospace" style="font-size:.78rem;">{{ v.result_path }}</td>
+          <td>{{ v.message }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% endif %}
+  {% endif %}
+
+  {% endif %}
 
 </div>
