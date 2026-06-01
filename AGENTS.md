@@ -8,7 +8,7 @@ The editor runs in the browser ([PyScript][PYSCRIPT]/[Pyodide][PYODIDE]) to edit
 
 **Stack:**
 - **Backend**: [FastAPI][FASTAPI] (Python 3.12) + [httpx][HTTPX] for proxying [BLUECORE API][BC_API]
-- **Frontend**: [PyScript][PYODIDE] 2024.11.1 ([Pyodide][PYODIDE]) running [Python][PYTHON] in the browser
+- **Frontend**: [PyScript][PYSCRIPT] 2024.11.1 ([Pyodide][PYODIDE]) running [Python][PYTHON] in the browser
 - **Templating**: [Jinja2][JINJA] (both server-side HTML and [PyScript][PYODIDE] dynamic rendering)
 - **RDF processing**: [rdflib][RDFLIB], [pyshacl][PYSHACL]
 - **UI**: [Bootstrap 5][BOOTSTRAP], [Bootstrap Icons][BOOTSTRAP_ICONS]
@@ -144,7 +144,7 @@ Managed via `[uv][UV]`. Python 3.12+ required. Key packages: `[fastapi][FASTAPI]
 [PYODIDE]: https://pyodide.org/en/stable/
 [PYSCRIPT]: https://pyscript.net/
 [PYSHACL]: https://github.com/rdflib/pyshacl
-[PYTHON: https://python.org
+[PYTHON]: https://python.org
 [PYTEST]: https://docs.pytest.org/en/stable/
 [RDFLIB]: https://rdflib.readthedocs.io/en/stable/
 [UV]: https://docs.astral.sh/uv/
