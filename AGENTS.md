@@ -2,21 +2,23 @@
 
 ## Project Overview
 
-Sinopia Linked Data Editor packaged as a FastAPI + PyScript Airflow plugin. The editor runs in the browser (PyScript/Pyodide) to edit BIBFRAME RDF resources and communicates with a Blue Core backend API for persistence.
+Sinopia Linked Data Editor packaged as a [FastAPI][FASTAPI] + [PyScript][PYSCRIPT] [Airflow][AIRFLOW] plugin. 
+The editor runs in the browser ([PyScript][PYSCRIPT]/[Pyodide][PYODIDE]) to edit 
+[BIBFRAME][BF] RDF resources and communicates with a [Blue Core backend API][BC_API] for persistence.
 
 **Stack:**
-- **Backend**: FastAPI (Python 3.12) + httpx for proxying BLUECORE API
-- **Frontend**: PyScript 2024.11.1 (Pyodide) running Python in the browser
-- **Templating**: Jinja2 (both server-side HTML and PyScript dynamic rendering)
-- **RDF processing**: rdflib, pyshacl
-- **UI**: Bootstrap 5, Bootstrap Icons
-- **Testing**: pytest, FastAPI TestClient, BeautifulSoup4
+- **Backend**: [FastAPI][FASTAPI] (Python 3.12) + [httpx][HTTPX] for proxying [BLUECORE API][BC_API]
+- **Frontend**: [PyScript][PYODIDE] 2024.11.1 ([Pyodide][PYODIDE]) running [Python][PYTHON] in the browser
+- **Templating**: [Jinja2][JINJA] (both server-side HTML and [PyScript][PYODIDE] dynamic rendering)
+- **RDF processing**: [rdflib][RDFLIB], [pyshacl][PYSHACL]
+- **UI**: [Bootstrap 5][BOOTSTRAP], [Bootstrap Icons][BOOTSTRAP_ICONS]
+- **Testing**: pytest, FastAPI TestClient, [BeautifulSoup4][BS4]
 
 ## Quick Commands
 
 ```bash
-# Run tests
-pytest
+# Run tests (requires uv)
+uv run pytest
 
 # Start dev server (requires uv)
 uv run uvicorn sinopia_plugin:app --reload
@@ -25,7 +27,7 @@ uv run uvicorn sinopia_plugin:app --reload
 ## Architecture
 
 ### Backend (`sinopia_plugin.py`)
-FastAPI application serving the editor UI.
+[FastAPI][FASTAPI] application serving the editor UI.
 
 **Routes:**
 - `GET /sinopia/editor/{resource_id}` — Serves editor HTML template
@@ -33,7 +35,7 @@ FastAPI application serving the editor UI.
 - `GET /` — JSON API metadata
 
 ### Frontend (`src/main.py` - PyScript)
-Runs entirely in browser (Python via Pyodide/PyScript).
+Runs entirely in browser (Python via [Pyodide][PYODIDE]/[PyScript][PYSCRIPT]).
 
 **Core classes:**
 - `EditorState` — Holds resource URI, types, properties, triples, SHACL validation state
@@ -47,7 +49,7 @@ Runs entirely in browser (Python via Pyodide/PyScript).
 - `render_main_editor(state)` — Builds HTML cards from SHACL shapes or fallback
 - `render_triples(state)` — Shows unused triples in a table at the bottom
 
-**Templates (Jinja2):**
+**Templates ([Jinja2][JINJA]):**
 - `TEMPLATE_PROP_CARD` — Container div for a property group/node-card
 - `TEMPLATE_LITERAL_INPUT` — Single textarea for literal-valued properties
 - `TEMPLATE_URI_INPUT` — Two-row widget (URI + Label) for URI/class-valued properties
@@ -72,7 +74,7 @@ Runs entirely in browser (Python via Pyodide/PyScript).
 ## Testing Quirks
 
 - Browser modules (`pyscript`, `pyodide.http`, `js`) must be mocked before importing `src/main.py`. See `tests/test_main.py` for the pattern.
-- The `_entry_point()` coroutine only runs when `sys.platform == "emscripten"` (Pyodide/PyScript environment).
+- The `_entry_point()` coroutine only runs when `sys.platform == "emscripten"` ([Pyodide][PYODIDE]/[PyScript][PYSCRIPT] environment).
 
 ## Known Issues & Limitations
 
@@ -93,14 +95,14 @@ Runs entirely in browser (Python via Pyodide/PyScript).
 ## Code Style Guidelines
 
 - Use Python's `match` statement instead of `if/elif/else` chains for pattern matching
-- Prefer Jinja2 templates for HTML generation over f-strings
+- Prefer [Jinja2][JINJA] templates for HTML generation over f-strings
 - Keep templates in `TEMPLATE_*` constants at module level
 - Use type hints for public methods
 - Only add comments for non-obvious behavior (workarounds, constraints)
 
 ## Testing
 
-- Unit tests in `tests/test_main.py` (PyScript logic) — 126 tests
+- Unit tests in `tests/test_main.py` ([PyScript][PYSCRIPT] logic) — 126 tests
 - Integration tests in `tests/test_integration.py` (HTML rendering, structure) — 10 tests
 - Run all tests: `uv run pytest tests/ -q`
 - **IMPORTANT**: Always run tests before git commit
@@ -112,18 +114,37 @@ sinopia_plugin.py                    # FastAPI app + proxy routes
 src/
   main.py                           # PyScript editor (EditorState, rendering)
   conf.json                         # PyScript config (includes jinja2 package)
-  dctap_shacl.py                   # DCTAP to SHACL conversion utility
+  dctap_shacl.py                   # [DCTAP to SHACL][BF_DCTAP] conversion utility
   templates/
     index.html                      # Editor HTML template with PyScript loader
     _editor.html                    # Editor UI structure (two-column layout, tabs)
     base.html                       # Blue Core header/footer wrapper
 tests/
-  test_main.py                     # Unit tests for PyScript logic
+  test_main.py                     # Unit tests for [PyScript][PYSHACL] logic
   test_integration.py              # Integration tests for HTML rendering
-  test_dctap_shacl.py              # DCTAP conversion tests
+  test_dctap_shacl.py              # [DCTAP][DCTAP] conversion tests
   test_plugin.py                   # FastAPI plugin tests
 ```
 
 ## Dependencies
 
-Managed via `uv`. Python 3.12+ required. Key packages: `fastapi`, `httpx`, `rdflib`, `pyshacl`, `jinja2`.
+Managed via `[uv][UV]`. Python 3.12+ required. Key packages: `[fastapi][FASTAPI]`, `[httpx][HTTPX]`, `[rdflib][RDFLIB]`, `[pyshacl][PYSHACL]`, `[jinja2][JINJA]`.
+
+[AIRFLOW]: https://airflow.apache.org/
+[BC_API]: https://github.com/blue-core-lod/bluecore_api
+[BF]: https://bibframe.org/
+[BS4]: https://beautiful-soup-4.readthedocs.io/en/latest/
+[BOOTSTRAP]: https://getbootstrap.com/
+[BOOTSTRAP_ICONS]: https://icons.getbootstrap.com/
+[DCTAP]: https://www.dublincore.org/specifications/dctap/
+[BF_DCTAP]: https://bf-interop.github.io/DCTap/
+[FASTAPI]: https://fastapi.tiangolo.com/
+[HTTPX]: https://www.python-httpx.org/
+[JINJA]: https://jinja.palletsprojects.com/en/stable/
+[PYODIDE]: https://pyodide.org/en/stable/
+[PYSCRIPT]: https://pyscript.net/
+[PYSHACL]: https://github.com/rdflib/pyshacl
+[PYTHON: https://python.org
+[PYTEST]: https://docs.pytest.org/en/stable/
+[RDFLIB]: https://rdflib.readthedocs.io/en/stable/
+[UV]: https://docs.astral.sh/uv/
