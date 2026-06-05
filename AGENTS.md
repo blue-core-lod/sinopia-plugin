@@ -99,6 +99,7 @@ Runs entirely in browser (Python via [Pyodide][PYODIDE]/[PyScript][PYSCRIPT]).
 - Keep templates in `TEMPLATE_*` constants at module level
 - Use type hints for public methods
 - Only add comments for non-obvious behavior (workarounds, constraints)
+- Pull Requests should have upper limit of 500 for new lines of code
 
 ## Testing
 
