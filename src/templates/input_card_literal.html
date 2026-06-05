@@ -1,0 +1,32 @@
+{%- set input_id = f"inputcard-{sid(ps.name)}-{idx}" -%}
+{%- set textarea_id = f"{input_id}-value" -%}
+{%- set safe_val = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") -%}
+{%- set prompt = ps.description or "Enter a literal" -%}
+<div class="input-card mb-3"
+     id="{{ input_id }}"
+     data-rdf-path="{{ ps.path }}">
+  <div class="d-flex justify-content-between align-items-center mb-1">
+    <span class="small fw-semibold">{{ ps.name }} {{ star_badge }}</span>
+    <button class="btn btn-link btn-sm p-0 text-secondary">
+      <i class="bi bi-trash icon-btn"></i>
+    </button>
+  </div>
+  {{ meta }}
+  <div class="small text-muted mb-2">{{ prompt }}</div>
+  <div class="d-flex align-items-start gap-2">
+    <textarea class="form-control form-control-sm" rows="2"
+              id="{{ textarea_id }}"
+              data-field="{{ textarea_id }}"
+              data-rdf-path="{{ ps.path }}">{{ safe_val }}</textarea>
+    <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
+      <button class="btn btn-sm btn-outline-secondary" title="Diacritics">ä</button>
+      <small class="text-muted text-center" style="white-space:nowrap;font-size:.72rem;">
+        No language<br>specified
+      </small>
+      <button class="btn btn-link btn-sm p-0 text-secondary">
+        <i class="bi bi-trash icon-btn"></i>
+      </button>
+    </div>
+  </div>
+  <div class="mt-1"><a href="#" class="add-link text-primary text-decoration-none d-block mb-1">+ Add {{ ps.name }}</a></div>
+</div>

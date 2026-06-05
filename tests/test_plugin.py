@@ -1,15 +1,21 @@
-"""Tests for sinopia_plugin helper functions."""
+"""Tests for sinopia helper functions."""
 import unittest
 
-from sinopia_plugin import (
+from sinopia.bluecore import (
     _format_date,
     _get_label,
     _get_types,
-    _loc_types_from_uri,
     _page_range,
+    _process_results,
+)
+from sinopia.loc import (
+    _loc_types_from_uri,
     _parse_loc_entry,
     _parse_loc_feed,
-    _process_results,
+)
+from sinopia.rdf import (
+    _detect_format,
+    _parse_rdf,
 )
 
 BF = "http://id.loc.gov/ontologies/bibframe/"
@@ -253,6 +259,80 @@ class TestPageRange(unittest.TestCase):
 
     def test_zero_pages_returns_empty(self):
         self.assertEqual(_page_range(1, 0), [])
+
+
+class TestDetectFormat(unittest.TestCase):
+
+    def test_turtle_content_type(self):
+        self.assertEqual(_detect_format("text/turtle; charset=utf-8", ""), "turtle")
+
+    def test_jsonld_content_type(self):
+        self.assertEqual(_detect_format("application/ld+json", ""), "json-ld")
+
+    def test_rdfxml_content_type(self):
+        self.assertEqual(_detect_format("application/rdf+xml", ""), "xml")
+
+    def test_ttl_extension_fallback(self):
+        self.assertEqual(_detect_format("", "https://example.com/shapes.ttl"), "turtle")
+
+    def test_jsonld_extension_fallback(self):
+        self.assertEqual(_detect_format("", "https://example.com/data.jsonld"), "json-ld")
+
+    def test_unknown_defaults_to_turtle(self):
+        self.assertEqual(_detect_format("", "https://example.com/data"), "turtle")
+
+    def test_url_query_string_ignored(self):
+        self.assertEqual(_detect_format("", "https://example.com/data.ttl?v=1"), "turtle")
+
+    def test_content_type_takes_priority_over_extension(self):
+        self.assertEqual(
+            _detect_format("application/ld+json", "https://example.com/data.ttl"),
+            "json-ld",
+        )
+
+
+_TURTLE_SIMPLE = """
+@prefix bf: <http://id.loc.gov/ontologies/bibframe/> .
+<https://example.com/works/1>
+    a bf:Work ;
+    bf:mainTitle "Star Wars" .
+"""
+
+_TURTLE_BAD = "this is not valid turtle @@@@"
+
+
+class TestParseRdf(unittest.TestCase):
+
+    def test_valid_turtle_returns_graph(self):
+        g, err = _parse_rdf(_TURTLE_SIMPLE, "", "turtle")
+        self.assertIsNone(err)
+        self.assertGreater(len(g), 0)
+
+    def test_triple_count_correct(self):
+        g, _ = _parse_rdf(_TURTLE_SIMPLE, "", "turtle")
+        self.assertEqual(len(g), 2)
+
+    def test_invalid_turtle_returns_error(self):
+        g, err = _parse_rdf(_TURTLE_BAD, "", "turtle")
+        self.assertIsNotNone(err)
+        self.assertEqual(len(g), 0)
+
+    def test_base_uri_applied(self):
+        ttl = "<> a <http://id.loc.gov/ontologies/bibframe/Work> ."
+        g, err = _parse_rdf(ttl, "https://example.com/works/1", "turtle")
+        self.assertIsNone(err)
+        self.assertEqual(len(g), 1)
+
+    def test_empty_string_returns_empty_graph(self):
+        g, err = _parse_rdf("", "", "turtle")
+        self.assertIsNone(err)
+        self.assertEqual(len(g), 0)
+
+    def test_jsonld_parsed(self):
+        jsonld = '{"@id":"https://example.com/1","@type":"http://id.loc.gov/ontologies/bibframe/Work"}'
+        g, err = _parse_rdf(jsonld, "", "json-ld")
+        self.assertIsNone(err)
+        self.assertEqual(len(g), 1)
 
 
 if __name__ == "__main__":

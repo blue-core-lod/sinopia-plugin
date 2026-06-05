@@ -1,0 +1,40 @@
+<h5 class="mt-4">LC Marva Production Profiles</h5>
+
+  {% if marva_error %}
+  <div class="alert alert-danger" role="alert">
+    <i class="bi bi-x-circle-fill me-1"></i>
+    <strong>Error:</strong> {{ marva_error }}
+  </div>
+
+  {% elif marva_templates %}
+  <table class="table table-sm table-bordered align-middle rt-table" id="rt-table-marva" style="font-size:.875rem;">
+    <thead class="table-light">
+      <tr>
+        <th>Shape ID</th>
+        <th>Label</th>
+        <th>Source</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in marva_templates %}
+      <tr>
+        <td class="font-monospace">{{ t.filename }}</td>
+        <td>{{ t.type }}</td>
+        <td><span class="badge bg-secondary font-monospace">{{ marva_source }}</span></td>
+        <td style="white-space:nowrap;">
+          <a href="#" title="Convert to SHACL" data-filename="{{ t.filename }}" data-source="{{ marva_source }}"
+             class="btn-dctap-shacl me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-file-earmark-plus-fill"></i></a>
+          <a href="#" title="View as table" data-filename="{{ t.filename }}" data-source="{{ marva_source }}"
+             class="btn-view-template me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-eye-fill"></i></a>
+          <a href="#" title="Edit"         style="color:#1a3a6b;font-size:1.4rem;" class="me-2"><i class="bi bi-pencil-fill"></i></a>
+          <a href="#" title="Copy"         style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-copy"></i></a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% else %}
+  <p class="text-muted fst-italic">No marva-profiles shapes found.</p>
+  {% endif %}

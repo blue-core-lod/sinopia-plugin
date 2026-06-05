@@ -1,162 +1,39 @@
 import math
-import os
 import pathlib
-from datetime import datetime
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent / "src"))
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-PLUGIN_DIR       = pathlib.Path(__file__).parent
-BLUECORE_URL     = os.environ.get("BLUECORE_URL", "https://dev.bcld.info").rstrip("/")
-ENVIRONMENT      = os.environ.get("ENVIRONMENT", "")
-SINOPIA_VERSION  = os.environ.get("SINOPIA_VERSION", "4.0.0")
+from sinopia.bluecore import _page_range, _process_results
+from sinopia.config import (
+    _BCLD_HEADERS,
+    BF_INTEROP_VERSION,
+    BLUECORE_URL,
+    ENVIRONMENT,
+    PAGE_SIZE,
+    PLUGIN_DIR,
+    SINOPIA_VERSION,
+)
+from sinopia.dctap import MARVA_SOURCE, fetch_templates, fetch_tsv_content
+from sinopia.loc import _parse_loc_feed
+from sinopia.rdf import _detect_format, _parse_rdf, _shacl_violations
 
 app = FastAPI(title="Sinopia Linked Data Editor", version=SINOPIA_VERSION)
 app.mount("/static", StaticFiles(directory=str(PLUGIN_DIR / "src" / "static")), name="static")
 templates = Jinja2Templates(directory=str(PLUGIN_DIR / "src" / "templates"))
 
 
-_BF_VOCAB = "http://id.loc.gov/ontologies/bibframe/"
-PAGE_SIZE = 10
-
-
-def _format_date(iso_str: str) -> str:
-    match iso_str:
-        case "":
-            return ""
-        case _:
-            try:
-                dt = datetime.fromisoformat(iso_str)
-                return dt.strftime(f"%b {dt.day}, %Y")
-            except ValueError:
-                return iso_str
-
-
-def _get_label(result: dict) -> str:
-    data = result.get("data", {})
-    match data.get("http://www.w3.org/2000/01/rdf-schema#label"):
-        case str(label) if label:
-            return label
-    match data.get("title"):
-        case {"mainTitle": str(t)} if t:
-            return t
-        case [{"mainTitle": str(t)}, *_] if t:
-            return t
-    return result.get("uri", "")
-
-
-def _get_types(result: dict) -> list[str]:
-    data = result.get("data", {})
-    match data.get("@type", ""):
-        case str(raw) if raw:
-            raw_list = [raw]
-        case [*items]:
-            raw_list = items
-        case _:
-            raw_list = []
-    return [t if t.startswith("http") else _BF_VOCAB + t for t in raw_list if t]
-
-
-def _page_range(current: int, total_pages: int) -> list:
-    """Return page numbers and '...' sentinels for the paginator."""
-    if total_pages <= 8:
-        return list(range(1, total_pages + 1))
-    window_start = max(1, min(current - 2, total_pages - 5))
-    window_end = min(window_start + 5, total_pages)
-    pages: list = []
-    if window_start > 1:
-        pages.append(1)
-        if window_start > 2:
-            pages.append("...")
-    pages.extend(range(window_start, window_end + 1))
-    if window_end < total_pages:
-        if window_end < total_pages - 1:
-            pages.append("...")
-        pages.append(total_pages)
-    return pages
-
-
-def _process_results(results: list[dict]) -> list[dict]:
-    return [
-        {
-            "label": _get_label(r),
-            "uri": r.get("uri", ""),
-            "uuid": r.get("uuid", ""),
-            "types": _get_types(r),
-            "modified": _format_date(r.get("updated_at", "")),
-            "group": "Blue Core",
-        }
-        for r in results
-    ]
-
-
-# ─── Library of Congress ────────────────────────────────────────────────────
-
-_LOC_URI_TYPES: dict[str, str] = {
-    "/resources/works/":     _BF_VOCAB + "Work",
-    "/resources/instances/": _BF_VOCAB + "Instance",
-    "/authorities/names/":   "http://www.loc.gov/mads/rdf/v1#Authority",
-    "/authorities/subjects/":"http://www.loc.gov/mads/rdf/v1#Topic",
-}
-
-
-def _loc_types_from_uri(uri: str) -> list[str]:
-    return [t for path, t in _LOC_URI_TYPES.items() if path in uri]
-
-
-def _parse_loc_entry(entry: list) -> dict | None:
-    label = uri = modified = ""
-    for child in entry[2:]:
-        if not isinstance(child, list):
-            continue
-        attrs = child[1] if len(child) > 1 and isinstance(child[1], dict) else {}
-        match child[0]:
-            case "atom:title":
-                label = child[-1] if isinstance(child[-1], str) else ""
-            case "atom:link" if attrs.get("rel") == "alternate" and "type" not in attrs:
-                uri = attrs.get("href", "")
-            case "atom:updated":
-                raw = child[-1] if isinstance(child[-1], str) else ""
-                modified = _format_date(raw[:10]) if raw else ""
-    if not uri:
-        return None
-    return {
-        "label": label,
-        "uri": uri,
-        "uuid": "",
-        "types": _loc_types_from_uri(uri),
-        "modified": modified,
-        "group": "Library of Congress",
-    }
-
-
-def _parse_loc_feed(data: list) -> tuple[list[dict], int]:
-    total = 0
-    results: list[dict] = []
-    for child in data[2:]:
-        if not isinstance(child, list):
-            continue
-        match child[0]:
-            case "opensearch:totalResults":
-                try:
-                    total = int(child[-1])
-                except (ValueError, TypeError):
-                    pass
-            case "atom:entry":
-                entry = _parse_loc_entry(child)
-                if entry:
-                    results.append(entry)
-    return results, total
-
-
 @app.get("/")
 async def root():
     return {
         "message": "Sinopia Plugin",
-        "version": "4.0.0",
+        "version": SINOPIA_VERSION,
         "bluecore_url": BLUECORE_URL,
     }
 
@@ -175,6 +52,57 @@ async def dashboard(request: Request):
     )
 
 
+@app.get("/sinopia/templates", response_class=HTMLResponse)
+async def resource_templates(request: Request):
+    rt_list: list[dict] = []
+    fetch_error: str | None = None
+    if BF_INTEROP_VERSION:
+        try:
+            rt_list = await fetch_templates(BF_INTEROP_VERSION)
+        except Exception as exc:
+            fetch_error = f"Could not load templates ({BF_INTEROP_VERSION}): {exc}"
+
+    marva_list: list[dict] = []
+    marva_error: str | None = None
+    try:
+        marva_list = await fetch_templates(MARVA_SOURCE)
+    except Exception as exc:
+        marva_error = f"Could not load marva-profiles templates: {exc}"
+
+    return templates.TemplateResponse(
+        request=request,
+        name="resource_templates.html",
+        context={
+            "environment":        ENVIRONMENT,
+            "active_nav":         "templates",
+            "templates":          rt_list,
+            "bf_interop_version": BF_INTEROP_VERSION,
+            "fetch_error":        fetch_error,
+            "marva_templates":    marva_list,
+            "marva_source":       MARVA_SOURCE,
+            "marva_error":        marva_error,
+        },
+    )
+
+
+@app.get("/sinopia/api/dctap/tsv")
+async def dctap_tsv(filename: str, source: str | None = None):
+    """Return the DCTAP rows for ``filename`` as TSV text.
+
+    ``source`` selects where the DCTAP comes from: a bf-interop release tag or
+    ``MARVA_SOURCE``.  When omitted it defaults to the configured
+    ``BF_INTEROP_VERSION`` for backward compatibility.
+    """
+    src = source or BF_INTEROP_VERSION
+    if not src:
+        raise HTTPException(status_code=503, detail="No DCTAP source configured (set BF_INTEROP_VERSION or pass ?source=)")
+    content = await fetch_tsv_content(src, filename)
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"{filename} not found in {src}")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content, media_type="text/tab-separated-values")
+
+
 @app.get("/sinopia/api/resource/{resource_id}")
 async def proxy_resource(resource_id: str):
     """Proxy JSON-LD from the BCLD API to avoid browser CORS issues."""
@@ -183,12 +111,15 @@ async def proxy_resource(resource_id: str):
         try:
             resp = await client.get(
                 url,
-                headers={"Accept": "application/ld+json, application/json;q=0.9"},
+                params={"is_expanded": "true"},
+                headers={"Accept": "application/ld+json, application/json;q=0.9", **_BCLD_HEADERS},
                 follow_redirects=True,
             )
             resp.raise_for_status()
+            body = resp.json()
+            resource_data = body.get("data", body) if isinstance(body, dict) else body
             return JSONResponse(
-                content=resp.json(),
+                content=resource_data,
                 headers={"Cache-Control": "max-age=60"},
             )
         except httpx.HTTPStatusError as exc:
@@ -212,6 +143,63 @@ async def load_rdf(request: Request):
     )
 
 
+@app.post("/sinopia/load", response_class=HTMLResponse)
+async def load_rdf_post(
+    request: Request,
+    rdf: str = Form(default=""),
+    base_uri: str = Form(default=""),
+    rdf_url: str = Form(default=""),
+    shapes_url: str = Form(default=""),
+):
+    rdf_content = rdf.strip()
+    rdf_format = "turtle"
+    fetch_error: str | None = None
+
+    if rdf_url and not rdf_content:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.get(
+                    rdf_url,
+                    headers={"Accept": "text/turtle, application/rdf+xml, application/ld+json, */*;q=0.8"},
+                    follow_redirects=True,
+                )
+                resp.raise_for_status()
+                rdf_content = resp.text
+                rdf_format = _detect_format(resp.headers.get("content-type", ""), rdf_url)
+            except httpx.HTTPStatusError as exc:
+                fetch_error = f"HTTP {exc.response.status_code} fetching URL"
+            except httpx.RequestError as exc:
+                fetch_error = f"Could not reach URL: {exc}"
+
+    parse_error: str | None = None
+    triple_count = 0
+    validation: dict | None = None
+
+    if rdf_content and not fetch_error:
+        data_graph, parse_error = _parse_rdf(rdf_content, base_uri.strip(), rdf_format)
+        if not parse_error:
+            triple_count = len(data_graph)
+            if shapes_url.strip():
+                validation = _shacl_violations(data_graph, shapes_url.strip())
+
+    return templates.TemplateResponse(
+        request=request,
+        name="load_rdf.html",
+        context={
+            "environment": ENVIRONMENT,
+            "active_nav": "actions",
+            "rdf":          rdf,
+            "rdf_url":      rdf_url,
+            "base_uri":     base_uri,
+            "shapes_url":   shapes_url,
+            "fetch_error":  fetch_error,
+            "parse_error":  parse_error,
+            "triple_count": triple_count,
+            "validation":   validation,
+        },
+    )
+
+
 @app.get("/sinopia/search", response_class=HTMLResponse)
 async def search(request: Request, q: str = "", source: str = "bluecore", page: int = 1):
     results: list[dict] = []
@@ -226,8 +214,8 @@ async def search(request: Request, q: str = "", source: str = "bluecore", page: 
                 try:
                     resp = await client.get(
                         f"{BLUECORE_URL}/api/search/",
-                        params={"q": q, "type": "works", "limit": PAGE_SIZE, "offset": offset},
-                        headers={"Accept": "application/json"},
+                        params={"q": q, "type": "works", "limit": PAGE_SIZE, "offset": offset, "is_expanded": "true"},
+                        headers={"Accept": "application/json", **_BCLD_HEADERS},
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -262,18 +250,18 @@ async def search(request: Request, q: str = "", source: str = "bluecore", page: 
         request=request,
         name="search.html",
         context={
-            "environment": ENVIRONMENT,
-            "active_nav": "search",
-            "search_q": q,
+            "environment":   ENVIRONMENT,
+            "active_nav":    "search",
+            "search_q":      q,
             "search_source": source,
-            "results": results,
-            "total": f"{total:,}",
-            "error": error,
-            "page": page,
-            "total_pages": total_pages,
-            "page_range": _page_range(page, total_pages),
-            "first_result": offset + 1 if results else 0,
-            "last_result": f"{(offset + len(results)):,}",
+            "results":       results,
+            "total":         f"{total:,}",
+            "error":         error,
+            "page":          page,
+            "total_pages":   total_pages,
+            "page_range":    _page_range(page, total_pages),
+            "first_result":  offset + 1 if results else 0,
+            "last_result":   f"{(offset + len(results)):,}",
         },
     )
 
@@ -284,10 +272,10 @@ async def editor_new(request: Request):
         request=request,
         name="index.html",
         context={
-            "resource_id": "",
-            "bluecore_url": BLUECORE_URL,
-            "environment": ENVIRONMENT,
-            "active_nav": "editor",
+            "resource_id":    "",
+            "bluecore_url":   BLUECORE_URL,
+            "environment":    ENVIRONMENT,
+            "active_nav":     "editor",
             "sinopia_version": SINOPIA_VERSION,
         },
     )
@@ -303,15 +291,20 @@ async def pyscript_main_py():
     return FileResponse(PLUGIN_DIR / "src" / "main.py", media_type="text/plain")
 
 
+@app.get("/sinopia/dctap-shacl.py")
+async def dctap_shacl_module():
+    return FileResponse(PLUGIN_DIR / "src" / "dctap_shacl.py", media_type="text/plain")
+
+
 @app.get("/sinopia/editor/{resource_id}", response_class=HTMLResponse)
 async def editor(request: Request, resource_id: str):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "resource_id": resource_id,
+            "resource_id":  resource_id,
             "bluecore_url": BLUECORE_URL,
-            "environment": ENVIRONMENT,
-            "active_nav": "editor",
+            "environment":  ENVIRONMENT,
+            "active_nav":   "editor",
         },
     )

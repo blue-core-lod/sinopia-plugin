@@ -1,0 +1,82 @@
+<!-- ═══════════════════ RESOURCE TEMPLATES ═══════════════════ -->
+<div class="container-fluid px-4 pt-4">
+
+  <h4 class="mb-1">Resource Templates</h4>
+  <p class="text-muted mb-4" style="font-size:.9rem;">
+    Browse and manage BIBFRAME resource templates as
+    <a href="https://www.w3.org/TR/shacl/">SHACL</a> graphs
+  </p>
+
+  <!-- Filter bar -->
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <label for="rt-filter" class="text-nowrap text-muted" style="font-size:.9rem;">
+      Find a resource template
+    </label>
+    <input id="rt-filter" type="search" class="form-control form-control-sm"
+           placeholder="Enter filename or group"
+           style="max-width:480px;" oninput="filterTemplates(this.value)">
+    <span class="text-muted small" id="rt-count"></span>
+  </div>
+  
+  {% include '_marva_profiles.html' %}
+  {% include '_bf_interop.html' %}
+  
+</div>
+
+<!-- DataFrame view modal -->
+<div class="modal fade" id="view-modal" tabindex="-1" aria-labelledby="view-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title font-monospace" id="view-modal-label"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="view-output" class="table-responsive" style="font-size:.8rem;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SHACL output modal -->
+<div class="modal fade" id="shacl-modal" tabindex="-1" aria-labelledby="shacl-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title font-monospace" id="shacl-modal-label"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="shacl-output" style="font-size:.8rem; white-space:pre-wrap;"></pre>
+      </div>
+      <div class="modal-footer">
+        <span id="shacl-add-status" class="text-muted small me-auto"></span>
+        <button type="button" id="btn-add-to-graph" class="btn btn-primary btn-sm">Add to SHACL Graph</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function filterTemplates(q) {
+  q = q.toLowerCase();
+  const rows = document.querySelectorAll(".rt-table tbody tr");
+  let visible = 0;
+  rows.forEach(row => {
+    const match = row.textContent.toLowerCase().includes(q);
+    row.style.display = match ? "" : "none";
+    if (match) visible++;
+  });
+  const countEl = document.getElementById("rt-count");
+  if (countEl) countEl.textContent = q ? `${visible} of ${rows.length}` : `${rows.length} templates`;
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const rows = document.querySelectorAll(".rt-table tbody tr");
+  const countEl = document.getElementById("rt-count");
+  if (countEl && rows.length) countEl.textContent = `${rows.length} templates`;
+});
+</script>
