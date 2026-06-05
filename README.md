@@ -17,7 +17,7 @@ Sinopia Linked Data Editor packaged as a FastAPI + PyScript Airflow plugin. The 
 uv run pytest
 
 # Start dev server
-uv run uvicorn sinopia_plugin:app --reload
+uv run fastapi dev sinopia_plugin.py
 ```
 
 ## Architecture
