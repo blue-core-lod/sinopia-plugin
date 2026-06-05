@@ -16,15 +16,15 @@ def _modal(modal_id: str) -> object:
 
 def _mark_loaded_rows():
     """Highlight rows whose SHACL is already stored in the localStorage template list."""
-    version = js.document.querySelector('meta[name="bf-interop-version"]').getAttribute("content")
-    rows = js.document.querySelectorAll("#rt-table tbody tr")
+    rows = js.document.querySelectorAll(".rt-table tbody tr")
     for i in range(rows.length):
         row = rows.item(i)
         btn = row.querySelector("[data-filename]")
         if not btn:
             continue
         filename = btn.getAttribute("data-filename")
-        if dctap_shacl.is_in_template_graph(version, filename):
+        source = btn.getAttribute("data-source")
+        if dctap_shacl.is_in_template_graph(source, filename):
             row.classList.add("table-success")
         else:
             row.classList.remove("table-success")
@@ -39,14 +39,14 @@ async def on_convert(event):
     if not el:
         return
     filename = el.getAttribute("data-filename")
-    version = js.document.querySelector('meta[name="bf-interop-version"]').getAttribute("content")
+    source = el.getAttribute("data-source")
 
     js.document.getElementById("shacl-modal-label").textContent = filename
     js.document.getElementById("shacl-output").textContent = "Loading…"
     _modal("shacl-modal").show()
 
     try:
-        shacl = await dctap_shacl.get_shacl(version, filename)
+        shacl = await dctap_shacl.get_shacl(source, filename)
         js.document.getElementById("shacl-output").textContent = shacl
         js.document.getElementById("shacl-add-status").textContent = ""
     except Exception as exc:
@@ -70,13 +70,14 @@ async def on_view(event):
     if not el:
         return
     filename = el.getAttribute("data-filename")
+    source = el.getAttribute("data-source")
 
     js.document.getElementById("view-modal-label").textContent = filename
     js.document.getElementById("view-output").innerHTML = "<p class='text-muted'>Loading…</p>"
     _modal("view-modal").show()
 
     try:
-        html = await dctap_shacl.view_as_html(filename)
+        html = await dctap_shacl.view_as_html(source, filename)
         js.document.getElementById("view-output").innerHTML = html
     except Exception as exc:
         js.document.getElementById("view-output").innerHTML = f"<p class='text-danger'>Error: {exc}</p>"

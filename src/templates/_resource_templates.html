@@ -7,20 +7,6 @@
     <a href="https://www.w3.org/TR/shacl/">SHACL</a> graphs
   </p>
 
-  {% if fetch_error %}
-  <div class="alert alert-danger" role="alert">
-    <i class="bi bi-x-circle-fill me-1"></i>
-    <strong>Error:</strong> {{ fetch_error }}
-  </div>
-
-  {% elif not bf_interop_version %}
-  <div class="alert alert-warning" role="alert">
-    <i class="bi bi-exclamation-triangle-fill me-1"></i>
-    Set the <code>BF_INTEROP_VERSION</code> environment variable to load templates.
-  </div>
-
-  {% else %}
-
   <!-- Filter bar -->
   <div class="d-flex align-items-center gap-3 mb-3">
     <label for="rt-filter" class="text-nowrap text-muted" style="font-size:.9rem;">
@@ -31,44 +17,10 @@
            style="max-width:480px;" oninput="filterTemplates(this.value)">
     <span class="text-muted small" id="rt-count"></span>
   </div>
-
-  <h5>BIBFRAME Interoperability Group DCTap Files</h5>
-
-  {% if templates %}
-  <table class="table table-sm table-bordered align-middle" id="rt-table" style="font-size:.875rem;">
-    <thead class="table-light">
-      <tr>
-        <th>Filename</th>
-        <th>Type</th>
-        <th>Tag</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in templates %}
-      <tr>
-        <td class="font-monospace">{{ t.filename }}</td>
-        <td>{{ t.type }}</td>
-        <td><span class="badge bg-secondary font-monospace">{{ bf_interop_version }}</span></td>
-        <td style="white-space:nowrap;">
-          <a href="#" title="Convert to SHACL" data-filename="{{ t.filename }}"
-             class="btn-dctap-shacl me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-file-earmark-plus-fill"></i></a>
-          <a href="#" title="View as table" data-filename="{{ t.filename }}"
-             class="btn-view-template me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-eye-fill"></i></a>
-          <a href="#" title="Edit"         style="color:#1a3a6b;font-size:1.4rem;" class="me-2"><i class="bi bi-pencil-fill"></i></a>
-          <a href="#" title="Copy"         style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-copy"></i></a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  {% else %}
-  <p class="text-muted fst-italic">No templates found in version {{ bf_interop_version }}.</p>
-  {% endif %}
-
-  {% endif %}
-
+  
+  {% include '_marva_profiles.html' %}
+  {% include '_bf_interop.html' %}
+  
 </div>
 
 <!-- DataFrame view modal -->
@@ -112,7 +64,7 @@
 <script>
 function filterTemplates(q) {
   q = q.toLowerCase();
-  const rows = document.querySelectorAll("#rt-table tbody tr");
+  const rows = document.querySelectorAll(".rt-table tbody tr");
   let visible = 0;
   rows.forEach(row => {
     const match = row.textContent.toLowerCase().includes(q);
@@ -123,7 +75,7 @@ function filterTemplates(q) {
   if (countEl) countEl.textContent = q ? `${visible} of ${rows.length}` : `${rows.length} templates`;
 }
 document.addEventListener("DOMContentLoaded", () => {
-  const rows = document.querySelectorAll("#rt-table tbody tr");
+  const rows = document.querySelectorAll(".rt-table tbody tr");
   const countEl = document.getElementById("rt-count");
   if (countEl && rows.length) countEl.textContent = `${rows.length} templates`;
 });

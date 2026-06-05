@@ -1,0 +1,45 @@
+<h5>BIBFRAME Interoperability Group DCTap Files</h5>
+
+ {% if fetch_error %}
+  <div class="alert alert-danger" role="alert">
+    <i class="bi bi-x-circle-fill me-1"></i>
+    <strong>Error:</strong> {{ fetch_error }}
+  </div>
+
+{% elif not bf_interop_version %}
+  <div class="alert alert-warning" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+    Set the <code>BF_INTEROP_VERSION</code> environment variable to load templates.
+  </div>
+  
+{% elif templates %}
+  <table class="table table-sm table-bordered align-middle rt-table" id="rt-table" style="font-size:.875rem;">
+    <thead class="table-light">
+      <tr>
+        <th>Filename</th>
+        <th>Type</th>
+        <th>Tag</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in templates %}
+      <tr>
+        <td class="font-monospace">{{ t.filename }}</td>
+        <td>{{ t.type }}</td>
+        <td><span class="badge bg-secondary font-monospace">{{ bf_interop_version }}</span></td>
+        <td style="white-space:nowrap;">
+          <a href="#" title="Convert to SHACL" data-filename="{{ t.filename }}" data-source="{{ bf_interop_version }}"
+             class="btn-dctap-shacl me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-file-earmark-plus-fill"></i></a>
+          <a href="#" title="View as table" data-filename="{{ t.filename }}" data-source="{{ bf_interop_version }}"
+             class="btn-view-template me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-eye-fill"></i></a>
+          <a href="#" title="Edit"         style="color:#1a3a6b;font-size:1.4rem;" class="me-2"><i class="bi bi-pencil-fill"></i></a>
+          <a href="#" title="Copy"         style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-copy"></i></a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted fst-italic">No templates found in version {{ bf_interop_version }}.</p>
+  {% endif %}

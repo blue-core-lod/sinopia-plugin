@@ -1,5 +1,23 @@
-"""Fetch DCTAP TSV filenames and content from a bf-interop/DCTap GitHub release zip."""
+"""Fetch DCTAP templates and content from pluggable sources.
 
+Two source layouts are supported:
+
+* **bf-interop release zip** — a GitHub release tag of ``bf-interop/DCTap``.
+  Each template is its own tab-separated file inside the zip, one shape per
+  file.  The source identifier is the release tag (e.g. ``v0.3.0``).
+
+* **marva-profiles CSV** — a single comma-separated file in
+  ``lcnetdev/marva-profiles`` holding many shapes, grouped by ``shapeID``
+  (continuation rows leave the shape-level columns blank).  The source
+  identifier is :data:`MARVA_SOURCE`.
+
+Both sources expose the same public API — :func:`fetch_templates` and
+:func:`fetch_tsv_content` — and always return DCTAP rows as tab-separated
+text using the column names the ``dctap2shacl`` transformer expects, so the
+downstream conversion/rendering code is source-agnostic.
+"""
+
+import csv
 import io
 import zipfile
 
@@ -7,9 +25,18 @@ import httpx
 
 DCTAP_REPO = "bf-interop/DCTap"
 
+#: Source identifier for the single marva-profiles DCTAP CSV.
+MARVA_SOURCE = "marva-prod"
+MARVA_CSV_URL = (
+    "https://raw.githubusercontent.com/lcnetdev/marva-profiles/main/marva-prod/dctap.csv"
+)
+
 _template_cache: dict[str, list[dict]] = {}
 _zip_cache: dict[str, bytes] = {}
+_csv_cache: dict[str, str] = {}
 
+
+# ── bf-interop release zip ────────────────────────────────────────────────────
 
 async def _fetch_zip(version: str) -> bytes:
     if version in _zip_cache:
@@ -40,18 +67,12 @@ def _parse_zip(zip_bytes: bytes) -> list[dict]:
     return entries
 
 
-async def fetch_templates(version: str) -> list[dict]:
-    """Return one entry per non-Prefixes TSV file for the given tag."""
-    if version in _template_cache:
-        return _template_cache[version]
+async def _bf_interop_templates(version: str) -> list[dict]:
     zip_bytes = await _fetch_zip(version)
-    result = _parse_zip(zip_bytes)
-    _template_cache[version] = result
-    return result
+    return _parse_zip(zip_bytes)
 
 
-async def fetch_tsv_content(version: str, filename: str) -> str | None:
-    """Return the raw text of a named TSV file from the zip, or None if not found."""
+async def _bf_interop_content(version: str, filename: str) -> str | None:
     zip_bytes = await _fetch_zip(version)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for name in zf.namelist():
@@ -59,3 +80,95 @@ async def fetch_tsv_content(version: str, filename: str) -> str | None:
             if len(parts) == 3 and parts[2] == filename:
                 return zf.read(name).decode("utf-8-sig")
     return None
+
+
+# ── marva-profiles CSV ────────────────────────────────────────────────────────
+
+async def _fetch_csv(url: str = MARVA_CSV_URL) -> str:
+    if url in _csv_cache:
+        return _csv_cache[url]
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+    text = resp.content.decode("utf-8-sig")
+    _csv_cache[url] = text
+    return text
+
+
+def _parse_marva_csv(csv_text: str) -> list[dict]:
+    """Normalise the marva CSV into DCTAP rows the transformer understands.
+
+    The marva layout leaves ``shapeID``/``shapeLabel``/``resourceURI`` blank on
+    every row after the first of a shape, so those columns are forward-filled.
+    ``resourceURI`` is renamed to ``target`` (the column name dctap2shacl reads
+    for ``sh:targetClass``).
+    """
+    rows: list[dict] = []
+    shape_id = shape_label = target = ""
+    for raw in csv.DictReader(io.StringIO(csv_text)):
+        if (raw.get("shapeID") or "").strip():
+            shape_id    = raw["shapeID"].strip()
+            shape_label = (raw.get("shapeLabel") or "").strip()
+            target      = (raw.get("resourceURI") or "").strip()
+        row = {k: v for k, v in raw.items() if k is not None and k != "resourceURI"}
+        row["shapeID"]    = shape_id
+        row["shapeLabel"] = shape_label
+        row["target"]     = target
+        rows.append(row)
+    return rows
+
+
+def _marva_templates(csv_text: str) -> list[dict]:
+    """Return one entry per distinct shape in the marva CSV."""
+    entries: list[dict] = []
+    seen: set[str] = set()
+    for row in _parse_marva_csv(csv_text):
+        shape_id = row["shapeID"]
+        if not shape_id or shape_id in seen:
+            continue
+        seen.add(shape_id)
+        entries.append({
+            "filename": shape_id,
+            "type":     row["shapeLabel"] or shape_id,
+        })
+    return entries
+
+
+def _marva_shape_tsv(csv_text: str, shape_id: str) -> str | None:
+    """Return the rows of a single marva shape as tab-separated DCTAP text."""
+    selected = [r for r in _parse_marva_csv(csv_text) if r["shapeID"] == shape_id]
+    if not selected:
+        return None
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(selected[0].keys()), delimiter="\t")
+    writer.writeheader()
+    writer.writerows(selected)
+    return buf.getvalue()
+
+
+# ── public, source-aware API ──────────────────────────────────────────────────
+
+async def fetch_templates(source: str) -> list[dict]:
+    """Return one ``{filename, type}`` entry per template in ``source``.
+
+    ``source`` is either a bf-interop release tag or :data:`MARVA_SOURCE`.
+    """
+    if source in _template_cache:
+        return _template_cache[source]
+    if source == MARVA_SOURCE:
+        result = _marva_templates(await _fetch_csv())
+    else:
+        result = await _bf_interop_templates(source)
+    _template_cache[source] = result
+    return result
+
+
+async def fetch_tsv_content(source: str, filename: str) -> str | None:
+    """Return the DCTAP rows for ``filename`` in ``source`` as TSV text.
+
+    For bf-interop, ``filename`` is a TSV file name within the release zip.
+    For marva, ``filename`` is a ``shapeID``.  Returns ``None`` if not found.
+    """
+    if source == MARVA_SOURCE:
+        return _marva_shape_tsv(await _fetch_csv(), filename)
+    return await _bf_interop_content(source, filename)

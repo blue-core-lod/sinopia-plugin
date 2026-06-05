@@ -612,6 +612,20 @@ class TestUriInputCard(unittest.TestCase):
         html    = factory.build_node_card("Work", [ps])
         self.assertIn("Dogri", html)
 
+    def test_label_html_escaped_from_state_labels(self):
+        # A resource-supplied rdfs:label must be HTML-escaped before going into
+        # the textarea, so it cannot break out of the element.
+        state = _make_state(
+            props={BF + "language": ["http://id.loc.gov/vocabulary/languages/doi"]},
+            labels={"http://id.loc.gov/vocabulary/languages/doi": "</textarea><script>x</script>"},
+            resource_uri="https://example.com/w/1",
+        )
+        factory = main.PropCardFactory(state)
+        ps      = self._ps_uri(BF + "language", "Language")
+        html    = factory.build_node_card("Work", [ps])
+        self.assertNotIn("</textarea><script>", html)
+        self.assertIn("&lt;/textarea&gt;&lt;script&gt;", html)
+
     def test_label_field_data_rdf_path_is_rdfs_label(self):
         factory = self._factory(**{BF + "language": ["http://id.loc.gov/vocabulary/languages/doi"]})
         ps   = self._ps_uri(BF + "language", "Language")

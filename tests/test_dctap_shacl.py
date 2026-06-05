@@ -1,6 +1,7 @@
 """Tests for src/dctap_shacl.py and sinopia/dctap.py."""
 
 import asyncio
+import csv
 import io
 import os
 import sys
@@ -258,7 +259,7 @@ class TestViewAsHtml(unittest.TestCase):
         mock_resp.ok = True
         mock_resp.string = AsyncMock(return_value=_SAMPLE_TSV)
         with patch("dctap_shacl.pyfetch", return_value=mock_resp):
-            result = _run(dctap_shacl.view_as_html("Work.tsv"))
+            result = _run(dctap_shacl.view_as_html("v0.3.0", "Work.tsv"))
         self.assertIn("<table", result)
         self.assertIn("</table>", result)
 
@@ -267,7 +268,7 @@ class TestViewAsHtml(unittest.TestCase):
         mock_resp.ok = True
         mock_resp.string = AsyncMock(return_value=_SAMPLE_TSV)
         with patch("dctap_shacl.pyfetch", return_value=mock_resp):
-            result = _run(dctap_shacl.view_as_html("Work.tsv"))
+            result = _run(dctap_shacl.view_as_html("v0.3.0", "Work.tsv"))
         self.assertIn("shapeID", result)
         self.assertIn("shapeLabel", result)
 
@@ -276,7 +277,7 @@ class TestViewAsHtml(unittest.TestCase):
         mock_resp.ok = True
         mock_resp.string = AsyncMock(return_value=_SAMPLE_TSV)
         with patch("dctap_shacl.pyfetch", return_value=mock_resp):
-            result = _run(dctap_shacl.view_as_html("Work.tsv"))
+            result = _run(dctap_shacl.view_as_html("v0.3.0", "Work.tsv"))
         self.assertIn("table-striped", result)
         self.assertIn("table-bordered", result)
 
@@ -286,13 +287,21 @@ class TestViewAsHtml(unittest.TestCase):
         mock_resp.status = 404
         with patch("dctap_shacl.pyfetch", return_value=mock_resp):
             with self.assertRaises(RuntimeError) as ctx:
-                _run(dctap_shacl.view_as_html("Missing.tsv"))
+                _run(dctap_shacl.view_as_html("v0.3.0", "Missing.tsv"))
         self.assertIn("404", str(ctx.exception))
 
 
 # ── sinopia.dctap (server-side) ───────────────────────────────────────────────
 
-from sinopia.dctap import _parse_zip, fetch_tsv_content  # noqa: E402
+from sinopia.dctap import (  # noqa: E402
+    MARVA_SOURCE,
+    _marva_shape_tsv,
+    _marva_templates,
+    _parse_marva_csv,
+    _parse_zip,
+    fetch_templates,
+    fetch_tsv_content,
+)
 
 
 _PREFIXES_TSV = "Vocabulary\tPrefix\tNamespace\nBIBFRAME\tbf:\thttp://id.loc.gov/ontologies/bibframe/\n"
@@ -379,6 +388,116 @@ class TestFetchTsvContent(unittest.TestCase):
             _run(fetch_tsv_content("v0.3.0", "Monograph_Work_Text.tsv"))
             _run(fetch_tsv_content("v0.3.0", "Serial_Work_Text.tsv"))
         self.assertEqual(mock_client.get.await_count, 1)
+
+
+# ── sinopia.dctap marva-profiles CSV source ──────────────────────────────────
+
+_MARVA_CSV = (
+    "shapeID,shapeLabel,resourceURI,propertyID,propertyLabel,mandatory,repeatable,"
+    "valueNodeType,valueDataType,valueShape,valueConstraint,valueConstraintType,note\n"
+    "lc:RT:bf2:Item,Digital Item,bf:Item,bf:heldBy,Held by,false,false,IRI,,,,,\n"
+    ",,,bf:note,\"Notes, etc.\",false,true,bnode,,lc:RT:bf2:Note,,,\n"
+    "lc:RT:bf2:Work,BIBFRAME Work,bf:Work,bf:title,Title,true,true,bnode,,lc:RT:bf2:Title,,,\n"
+)
+
+
+class TestParseMarvaCsv(unittest.TestCase):
+
+    def setUp(self):
+        self.rows = _parse_marva_csv(_MARVA_CSV)
+
+    def test_forward_fills_shape_columns(self):
+        # The second row (bf:note) is a continuation of the first shape.
+        note_row = next(r for r in self.rows if r["propertyID"] == "bf:note")
+        self.assertEqual(note_row["shapeID"], "lc:RT:bf2:Item")
+        self.assertEqual(note_row["shapeLabel"], "Digital Item")
+
+    def test_renames_resource_uri_to_target(self):
+        first = self.rows[0]
+        self.assertEqual(first["target"], "bf:Item")
+        self.assertNotIn("resourceURI", first)
+
+    def test_target_forward_filled(self):
+        note_row = next(r for r in self.rows if r["propertyID"] == "bf:note")
+        self.assertEqual(note_row["target"], "bf:Item")
+
+    def test_quoted_comma_preserved(self):
+        note_row = next(r for r in self.rows if r["propertyID"] == "bf:note")
+        self.assertEqual(note_row["propertyLabel"], "Notes, etc.")
+
+    def test_all_rows_returned(self):
+        self.assertEqual(len(self.rows), 3)
+
+
+class TestMarvaTemplates(unittest.TestCase):
+
+    def setUp(self):
+        self.entries = _marva_templates(_MARVA_CSV)
+
+    def test_one_entry_per_shape(self):
+        filenames = [e["filename"] for e in self.entries]
+        self.assertEqual(filenames, ["lc:RT:bf2:Item", "lc:RT:bf2:Work"])
+
+    def test_type_is_shape_label(self):
+        item = next(e for e in self.entries if e["filename"] == "lc:RT:bf2:Item")
+        self.assertEqual(item["type"], "Digital Item")
+
+    def test_entry_has_filename_and_type_keys(self):
+        for entry in self.entries:
+            self.assertIn("filename", entry)
+            self.assertIn("type", entry)
+
+
+class TestMarvaShapeTsv(unittest.TestCase):
+
+    def test_returns_tab_separated_rows_for_shape(self):
+        tsv = _marva_shape_tsv(_MARVA_CSV, "lc:RT:bf2:Item")
+        self.assertIsNotNone(tsv)
+        header = tsv.splitlines()[0]
+        self.assertIn("\t", header)
+        self.assertIn("target", header.split("\t"))
+
+    def test_only_includes_rows_for_requested_shape(self):
+        tsv = _marva_shape_tsv(_MARVA_CSV, "lc:RT:bf2:Item")
+        rows = list(csv.DictReader(io.StringIO(tsv), delimiter="\t"))
+        self.assertEqual({r["shapeID"] for r in rows}, {"lc:RT:bf2:Item"})
+        self.assertEqual(len(rows), 2)  # bf:heldBy + continuation bf:note
+
+    def test_output_round_trips_through_convert(self):
+        tsv = _marva_shape_tsv(_MARVA_CSV, "lc:RT:bf2:Work")
+        shacl = dctap_shacl._convert(tsv)
+        self.assertIn("targetClass", shacl)
+
+    def test_unknown_shape_returns_none(self):
+        self.assertIsNone(_marva_shape_tsv(_MARVA_CSV, "lc:RT:bf2:Nope"))
+
+
+class TestFetchMarvaSource(unittest.TestCase):
+
+    def setUp(self):
+        import sinopia.dctap as dctap_mod
+        dctap_mod._csv_cache.clear()
+        dctap_mod._template_cache.clear()
+
+    def _patch_csv(self):
+        return patch("sinopia.dctap._fetch_csv", AsyncMock(return_value=_MARVA_CSV))
+
+    def test_fetch_templates_lists_marva_shapes(self):
+        with self._patch_csv():
+            entries = _run(fetch_templates(MARVA_SOURCE))
+        self.assertEqual([e["filename"] for e in entries],
+                         ["lc:RT:bf2:Item", "lc:RT:bf2:Work"])
+
+    def test_fetch_tsv_content_returns_shape_tsv(self):
+        with self._patch_csv():
+            content = _run(fetch_tsv_content(MARVA_SOURCE, "lc:RT:bf2:Work"))
+        self.assertIsNotNone(content)
+        self.assertIn("bf:title", content)
+
+    def test_fetch_tsv_content_unknown_shape_returns_none(self):
+        with self._patch_csv():
+            content = _run(fetch_tsv_content(MARVA_SOURCE, "missing"))
+        self.assertIsNone(content)
 
 
 if __name__ == "__main__":

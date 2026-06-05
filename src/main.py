@@ -121,7 +121,7 @@ TEMPLATE_URI_INPUT = Template("""<div class="input-card mb-3"
 
 # ── State ──────────────────────────────────────────────────────────────────────
 
-class EditorState:
+class EditorState(object):
     """All client-side editor state for a single resource."""
 
     def __init__(self, resource_id: str):
@@ -643,12 +643,13 @@ class PropCardFactory(object):
         star, badge, meta = self._card_header(ps, idx, severity)
         safe_uri  = uri_value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         label_val = self._state.labels.get(uri_value, "")
+        safe_label = label_val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         if TEMPLATE_URI_INPUT:
             return TEMPLATE_URI_INPUT.render(
                 input_id=input_id, uri_id=uri_id, label_id=label_id,
                 path=ps.path, name=ps.name, star=star, badge=badge, meta=meta,
-                uri_value=safe_uri, label_value=label_val, rdfs_label=f"{rdflib.RDFS}label"
+                uri_value=safe_uri, label_value=safe_label, rdfs_label=f"{rdflib.RDFS}label"
             )
 
         # Fallback for when jinja2 is not available
@@ -689,7 +690,7 @@ class PropCardFactory(object):
     <textarea class="form-control form-control-sm" rows="2"
               id="{label_id}"
               data-field="{label_id}"
-              data-rdf-path="{rdflib.RDFS}label">{label_val}</textarea>
+              data-rdf-path="{rdflib.RDFS}label">{safe_label}</textarea>
     <div class="d-flex flex-column align-items-center gap-1 flex-shrink-0">
       <button class="btn btn-sm btn-outline-secondary" title="Diacritics">ä</button>
       <small class="text-muted text-center" style="white-space:nowrap;font-size:.72rem;">

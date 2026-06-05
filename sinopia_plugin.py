@@ -20,7 +20,7 @@ from sinopia.config import (
     PLUGIN_DIR,
     SINOPIA_VERSION,
 )
-from sinopia.dctap import fetch_templates, fetch_tsv_content
+from sinopia.dctap import MARVA_SOURCE, fetch_templates, fetch_tsv_content
 from sinopia.loc import _parse_loc_feed
 from sinopia.rdf import _detect_format, _parse_rdf, _shacl_violations
 
@@ -61,6 +61,14 @@ async def resource_templates(request: Request):
             rt_list = await fetch_templates(BF_INTEROP_VERSION)
         except Exception as exc:
             fetch_error = f"Could not load templates ({BF_INTEROP_VERSION}): {exc}"
+
+    marva_list: list[dict] = []
+    marva_error: str | None = None
+    try:
+        marva_list = await fetch_templates(MARVA_SOURCE)
+    except Exception as exc:
+        marva_error = f"Could not load marva-profiles templates: {exc}"
+
     return templates.TemplateResponse(
         request=request,
         name="resource_templates.html",
@@ -70,18 +78,27 @@ async def resource_templates(request: Request):
             "templates":          rt_list,
             "bf_interop_version": BF_INTEROP_VERSION,
             "fetch_error":        fetch_error,
+            "marva_templates":    marva_list,
+            "marva_source":       MARVA_SOURCE,
+            "marva_error":        marva_error,
         },
     )
 
 
 @app.get("/sinopia/api/dctap/tsv")
-async def dctap_tsv(filename: str):
-    """Return the raw TSV content of a named DCTAP file from the configured release."""
-    if not BF_INTEROP_VERSION:
-        raise HTTPException(status_code=503, detail="BF_INTEROP_VERSION not configured")
-    content = await fetch_tsv_content(BF_INTEROP_VERSION, filename)
+async def dctap_tsv(filename: str, source: str | None = None):
+    """Return the DCTAP rows for ``filename`` as TSV text.
+
+    ``source`` selects where the DCTAP comes from: a bf-interop release tag or
+    ``MARVA_SOURCE``.  When omitted it defaults to the configured
+    ``BF_INTEROP_VERSION`` for backward compatibility.
+    """
+    src = source or BF_INTEROP_VERSION
+    if not src:
+        raise HTTPException(status_code=503, detail="No DCTAP source configured (set BF_INTEROP_VERSION or pass ?source=)")
+    content = await fetch_tsv_content(src, filename)
     if content is None:
-        raise HTTPException(status_code=404, detail=f"{filename} not found in {BF_INTEROP_VERSION}")
+        raise HTTPException(status_code=404, detail=f"{filename} not found in {src}")
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse(content, media_type="text/tab-separated-values")
 
