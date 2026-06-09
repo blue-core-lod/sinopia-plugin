@@ -6,35 +6,54 @@
     <strong>Error:</strong> {{ marva_error }}
   </div>
 
-  {% elif marva_templates %}
-  <table class="table table-sm table-bordered align-middle rt-table" id="rt-table-marva" style="font-size:.875rem;">
-    <thead class="table-light">
-      <tr>
-        <th>Shape ID</th>
-        <th>Label</th>
-        <th>Source</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in marva_templates %}
-      <tr>
-        <td class="font-monospace">{{ t.filename }}</td>
-        <td>{{ t.type }}</td>
-        <td><span class="badge bg-secondary font-monospace">{{ marva_source }}</span></td>
-        <td style="white-space:nowrap;">
-          <a href="#" title="Convert to SHACL" data-filename="{{ t.filename }}" data-source="{{ marva_source }}"
-             class="btn-dctap-shacl me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-file-earmark-plus-fill"></i></a>
-          <a href="#" title="View as table" data-filename="{{ t.filename }}" data-source="{{ marva_source }}"
-             class="btn-view-template me-2" style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-eye-fill"></i></a>
-          <a href="#" title="Edit"         style="color:#1a3a6b;font-size:1.4rem;" class="me-2"><i class="bi bi-pencil-fill"></i></a>
-          <a href="#" title="Copy"         style="color:#1a3a6b;font-size:1.4rem;"><i class="bi bi-copy"></i></a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% elif marva_outline %}
+  <p class="text-muted mb-2" style="font-size:.875rem;">
+    Production starting points from
+    <span class="badge bg-secondary font-monospace">{{ marva_source }}</span>.
+    Expand a profile to drill into the shapes it references.
+  </p>
+
+  <style>
+    .marva-outline .outline-toggle .bi { transition: transform .15s ease-in-out; }
+    .marva-outline .outline-toggle[aria-expanded="true"] .bi { transform: rotate(90deg); }
+    .marva-outline li > ul { border-left: 1px solid #dee2e6; }
+    .marva-outline .marva-loaded { background:#d1e7dd; border-radius:.25rem; }
+  </style>
+
+  <ul class="list-unstyled marva-outline mb-0" id="rt-outline-marva" style="font-size:.875rem;">
+    {% for node in marva_outline recursive %}
+    <li>
+      <div class="marva-row d-flex align-items-center gap-2 py-1">
+        {% if node.children %}
+        <a class="outline-toggle text-decoration-none" data-bs-toggle="collapse"
+           href="#marva-{{ node.uid }}" role="button" aria-expanded="false"
+           aria-controls="marva-{{ node.uid }}" style="color:#1a3a6b;">
+          <i class="bi bi-chevron-right"></i>
+        </a>
+        {% else %}
+        <span class="text-muted" style="opacity:.4;"><i class="bi bi-dot"></i></span>
+        {% endif %}
+
+        <span class="fw-semibold">{{ node.label }}</span>
+        <span class="text-muted font-monospace">{{ node.shape_id }}</span>
+
+        <span class="ms-auto" style="white-space:nowrap;">
+          <a href="#" title="Convert to SHACL" data-filename="{{ node.shape_id }}" data-source="{{ marva_source }}"
+             class="btn-dctap-shacl me-2" style="color:#1a3a6b;font-size:1.25rem;"><i class="bi bi-file-earmark-plus-fill"></i></a>
+          <a href="#" title="View as table" data-filename="{{ node.shape_id }}" data-source="{{ marva_source }}"
+             class="btn-view-template" style="color:#1a3a6b;font-size:1.25rem;"><i class="bi bi-eye-fill"></i></a>
+        </span>
+      </div>
+
+      {% if node.children %}
+      <ul class="list-unstyled collapse ms-4 ps-3" id="marva-{{ node.uid }}">
+        {{ loop(node.children) }}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
 
   {% else %}
-  <p class="text-muted fst-italic">No marva-profiles shapes found.</p>
+  <p class="text-muted fst-italic">No marva-profiles starting points found.</p>
   {% endif %}

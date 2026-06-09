@@ -15,7 +15,7 @@ def _modal(modal_id: str) -> object:
 
 
 def _mark_loaded_rows():
-    """Highlight rows whose SHACL is already stored in the localStorage template list."""
+    """Highlight bf-interop table rows whose SHACL is already in the template graph."""
     rows = js.document.querySelectorAll(".rt-table tbody tr")
     for i in range(rows.length):
         row = rows.item(i)
@@ -30,7 +30,106 @@ def _mark_loaded_rows():
             row.classList.remove("table-success")
 
 
-_mark_loaded_rows()
+def _mark_loaded_outline():
+    """Highlight marva outline nodes whose SHACL is already in the template graph."""
+    headers = js.document.querySelectorAll("#rt-outline-marva .marva-row")
+    for i in range(headers.length):
+        header = headers.item(i)
+        btn = header.querySelector("[data-filename]")
+        if not btn:
+            continue
+        filename = btn.getAttribute("data-filename")
+        source = btn.getAttribute("data-source")
+        if dctap_shacl.is_in_template_graph(source, filename):
+            header.classList.add("marva-loaded")
+        else:
+            header.classList.remove("marva-loaded")
+
+
+def _mark_loaded():
+    _mark_loaded_rows()
+    _mark_loaded_outline()
+
+
+# ── filtering (bf-interop table + marva outline) ─────────────────────────────
+
+def _filter_table(q: str) -> tuple:
+    """Show/hide bf-interop table rows; return (visible, total)."""
+    rows = js.document.querySelectorAll(".rt-table tbody tr")
+    visible = 0
+    for i in range(rows.length):
+        row = rows.item(i)
+        match = (not q) or (q in row.textContent.lower())
+        row.style.display = "" if match else "none"
+        if match:
+            visible += 1
+    return visible, rows.length
+
+
+def _row_text(li) -> str:
+    """The node's own label + shape id (its header row), excluding descendants."""
+    header = li.firstElementChild
+    return header.textContent.lower() if header else ""
+
+
+def _filter_outline(q: str) -> tuple:
+    """Filter the marva outline; expand parents that contain a match.  Returns
+    (visible, total) counting only currently-revealed nodes."""
+    root = js.document.getElementById("rt-outline-marva")
+    if not root:
+        return 0, 0
+    visible = 0
+    total = 0
+    tops = root.children
+    for i in range(tops.length):
+        li = tops.item(i)
+        total += 1
+        self_match = (not q) or (q in _row_text(li))
+        child_ul = li.querySelector("ul")
+        any_kid_match = False
+        kids_shown = []
+        if child_ul:
+            kids = child_ul.children
+            for j in range(kids.length):
+                kid = kids.item(j)
+                total += 1
+                kid_match = bool(q) and (q in _row_text(kid))
+                if kid_match:
+                    any_kid_match = True
+                show_kid = (not q) or kid_match or self_match
+                kid.style.display = "" if show_kid else "none"
+                kids_shown.append(show_kid)
+            # reveal a branch that contains a match; collapse when query cleared
+            if q and any_kid_match:
+                child_ul.classList.add("show")
+            elif not q:
+                child_ul.classList.remove("show")
+        show_li = self_match or any_kid_match
+        li.style.display = "" if show_li else "none"
+        if show_li:
+            visible += 1
+            if q and any_kid_match:
+                visible += sum(1 for shown in kids_shown if shown)
+    return visible, total
+
+
+def _apply_filter(raw: str):
+    q = (raw or "").strip().lower()
+    v1, t1 = _filter_table(q)
+    v2, t2 = _filter_outline(q)
+    visible, total = v1 + v2, t1 + t2
+    count_el = js.document.getElementById("rt-count")
+    if count_el:
+        count_el.textContent = f"{visible} of {total}" if q else f"{total} templates"
+
+
+@when("input", "#rt-filter")
+def on_filter(event):
+    _apply_filter(event.target.value)
+
+
+_mark_loaded()
+_apply_filter("")
 
 
 @when("click", ".btn-dctap-shacl")
@@ -61,7 +160,7 @@ def on_add_to_graph(event):
     count = dctap_shacl.add_to_template_graph(shacl)
     status = js.document.getElementById("shacl-add-status")
     status.textContent = f"Saved — {count} item{'s' if count != 1 else ''} in graph"
-    _mark_loaded_rows()
+    _mark_loaded()
 
 
 @when("click", ".btn-view-template")

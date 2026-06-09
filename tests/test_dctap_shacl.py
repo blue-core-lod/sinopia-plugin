@@ -295,10 +295,12 @@ class TestViewAsHtml(unittest.TestCase):
 
 from sinopia.dctap import (  # noqa: E402
     MARVA_SOURCE,
+    _marva_outline,
     _marva_shape_tsv,
     _marva_templates,
     _parse_marva_csv,
     _parse_zip,
+    fetch_marva_outline,
     fetch_templates,
     fetch_tsv_content,
 )
@@ -470,6 +472,89 @@ class TestMarvaShapeTsv(unittest.TestCase):
 
     def test_unknown_shape_returns_none(self):
         self.assertIsNone(_marva_shape_tsv(_MARVA_CSV, "lc:RT:bf2:Nope"))
+
+
+_MARVA_OUTLINE_CSV = (
+    "shapeID,shapeLabel,resourceURI,propertyID,propertyLabel,valueShape\n"
+    "startingpoint:index,Starting Point Index,,dcterms:hasPart,Monograph,startingpoint:Mono\n"
+    ",,,dcterms:hasPart,Serial,startingpoint:Ser\n"
+    "startingpoint:Mono,Monograph,,dcterms:hasPart,Work,lc:Work\n"
+    ",,,dcterms:hasPart,Self,startingpoint:Mono\n"  # cycle back to an ancestor
+    "startingpoint:Ser,Serial,,bf:title,Title,\n"
+    "lc:Work,BIBFRAME Work,bf:Work,bf:title,Title,lc:Title\n"  # grandchild, beyond depth 2
+    "lc:Title,Title,,bf:mainTitle,Main title,\n"
+)
+
+
+def _flatten(nodes):
+    for n in nodes:
+        yield n
+        yield from _flatten(n["children"])
+
+
+class TestMarvaOutline(unittest.TestCase):
+
+    def setUp(self):
+        self.outline = _marva_outline(_MARVA_OUTLINE_CSV)
+
+    def test_top_level_are_index_value_shapes(self):
+        self.assertEqual(
+            [(n["label"], n["shape_id"]) for n in self.outline],
+            [("Monograph", "startingpoint:Mono"), ("Serial", "startingpoint:Ser")],
+        )
+
+    def test_child_label_comes_from_property_label(self):
+        mono = self.outline[0]
+        self.assertEqual([(c["label"], c["shape_id"]) for c in mono["children"]],
+                         [("Work", "lc:Work")])
+
+    def test_stops_at_two_levels(self):
+        # lc:Work references lc:Title, but that grandchild is beyond depth 2.
+        work = self.outline[0]["children"][0]
+        self.assertEqual(work["children"], [])
+
+    def test_cycle_back_to_ancestor_is_pruned(self):
+        # startingpoint:Mono references itself; the ancestor must not recurse.
+        mono = self.outline[0]
+        self.assertNotIn("startingpoint:Mono",
+                         [c["shape_id"] for c in mono["children"]])
+
+    def test_shape_without_value_shapes_is_a_leaf(self):
+        serial = self.outline[1]
+        self.assertEqual(serial["children"], [])
+
+    def test_uids_are_unique_across_all_nodes(self):
+        uids = [n["uid"] for n in _flatten(self.outline)]
+        self.assertEqual(len(uids), len(set(uids)))
+
+    def test_empty_when_no_starting_point_index(self):
+        self.assertEqual(_marva_outline(_MARVA_CSV), [])
+
+    def test_pipe_separated_value_shapes_become_separate_children(self):
+        csv_text = (
+            "shapeID,shapeLabel,resourceURI,propertyID,propertyLabel,valueShape\n"
+            "startingpoint:index,Index,,dcterms:hasPart,Mono,startingpoint:Mono\n"
+            "startingpoint:Mono,Monograph,,bf:title,Title,lc:A | lc:B\n"
+            "lc:A,Shape A,,p,x,\n"
+            "lc:B,Shape B,,p,x,\n"
+        )
+        mono = _marva_outline(csv_text)[0]
+        self.assertEqual([(c["shape_id"], c["label"]) for c in mono["children"]],
+                         [("lc:A", "Shape A"), ("lc:B", "Shape B")])
+
+
+class TestFetchMarvaOutline(unittest.TestCase):
+
+    def setUp(self):
+        import sinopia.dctap as dctap_mod
+        dctap_mod._csv_cache.clear()
+
+    def test_returns_outline_from_fetched_csv(self):
+        with patch("sinopia.dctap._fetch_csv",
+                   AsyncMock(return_value=_MARVA_OUTLINE_CSV)):
+            outline = _run(fetch_marva_outline())
+        self.assertEqual([n["shape_id"] for n in outline],
+                         ["startingpoint:Mono", "startingpoint:Ser"])
 
 
 class TestFetchMarvaSource(unittest.TestCase):

@@ -14,7 +14,7 @@
     </label>
     <input id="rt-filter" type="search" class="form-control form-control-sm"
            placeholder="Enter filename or group"
-           style="max-width:480px;" oninput="filterTemplates(this.value)">
+           style="max-width:480px;">
     <span class="text-muted small" id="rt-count"></span>
   </div>
   
@@ -60,23 +60,3 @@
     </div>
   </div>
 </div>
-
-<script>
-function filterTemplates(q) {
-  q = q.toLowerCase();
-  const rows = document.querySelectorAll(".rt-table tbody tr");
-  let visible = 0;
-  rows.forEach(row => {
-    const match = row.textContent.toLowerCase().includes(q);
-    row.style.display = match ? "" : "none";
-    if (match) visible++;
-  });
-  const countEl = document.getElementById("rt-count");
-  if (countEl) countEl.textContent = q ? `${visible} of ${rows.length}` : `${rows.length} templates`;
-}
-document.addEventListener("DOMContentLoaded", () => {
-  const rows = document.querySelectorAll(".rt-table tbody tr");
-  const countEl = document.getElementById("rt-count");
-  if (countEl && rows.length) countEl.textContent = `${rows.length} templates`;
-});
-</script>
