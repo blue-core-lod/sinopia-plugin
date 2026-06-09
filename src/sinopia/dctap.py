@@ -19,6 +19,7 @@ downstream conversion/rendering code is source-agnostic.
 
 import csv
 import io
+import itertools
 import zipfile
 
 import httpx
@@ -27,6 +28,14 @@ DCTAP_REPO = "bf-interop/DCTap"
 
 #: Source identifier for the single marva-profiles DCTAP CSV.
 MARVA_SOURCE = "marva-prod"
+
+#: The marva shape whose ``valueShape`` rows enumerate the top-level starting
+#: points of the profile outline.
+MARVA_ROOT_SHAPE = "startingpoint:index"
+
+#: How many levels deep the outline is built: the starting points (level 1) and
+#: the shapes they reference (level 2).  Deeper references are not expanded.
+MARVA_MAX_DEPTH = 2
 MARVA_CSV_URL = (
     "https://raw.githubusercontent.com/lcnetdev/marva-profiles/main/marva-prod/dctap.csv"
 )
@@ -146,6 +155,76 @@ def _marva_shape_tsv(csv_text: str, shape_id: str) -> str | None:
     return buf.getvalue()
 
 
+def _marva_outline(csv_text: str, max_depth: int = MARVA_MAX_DEPTH) -> list[dict]:
+    """Build a nested outline of marva shapes rooted at :data:`MARVA_ROOT_SHAPE`.
+
+    The ``startingpoint:index`` shape lists the production starting points in its
+    ``valueShape`` column; each of those shapes in turn references further shapes
+    through *their* ``valueShape`` columns.  This walks that graph and returns a
+    tree of nodes::
+
+        {"uid": int, "shape_id": str, "label": str, "children": [node, ...]}
+
+    Top-level nodes are the starting points (the ``valueShape`` entries of
+    ``startingpoint:index``); a node's children are the shapes referenced by its
+    own rows.  The tree is built ``max_depth`` levels deep (default
+    :data:`MARVA_MAX_DEPTH` — starting points plus the shapes they reference);
+    deeper references are not expanded.  ``uid`` is unique per node occurrence so
+    collapse targets in the template never collide even when a shape appears
+    under several parents.  A shape is never expanded inside its own ancestry, so
+    cycles terminate.
+    """
+    by_shape: dict[str, list[dict]] = {}
+    for row in _parse_marva_csv(csv_text):
+        by_shape.setdefault(row["shapeID"], []).append(row)
+
+    labels = {sid: (rows[0].get("shapeLabel") or sid) for sid, rows in by_shape.items()}
+    counter = itertools.count()
+
+    def _child_refs(rows: list[dict]) -> list[tuple]:
+        """Yield ``(shape_id, label)`` pairs for every ``valueShape`` referenced.
+
+        A ``valueShape`` cell may hold ``|``-separated alternatives (a SHACL
+        ``sh:or``); each alternative becomes its own node.  A single reference
+        takes the row's ``propertyLabel``; alternatives are labelled by their own
+        shape label so they stay distinguishable.
+        """
+        refs: list[tuple] = []
+        for row in rows:
+            parts = [p.strip() for p in (row.get("valueShape") or "").split("|") if p.strip()]
+            prop_label = (row.get("propertyLabel") or "").strip()
+            for part in parts:
+                if len(parts) == 1:
+                    label = prop_label or labels.get(part, part)
+                else:
+                    label = labels.get(part, part)
+                refs.append((part, label))
+        return refs
+
+    def _build(shape_id: str, label: str, ancestors: frozenset, depth: int) -> dict:
+        children: list[dict] = []
+        if depth < max_depth:
+            for child, child_label in _child_refs(by_shape.get(shape_id, [])):
+                if child in ancestors:
+                    continue
+                children.append(
+                    _build(child, child_label, ancestors | {child}, depth + 1)
+                )
+        return {
+            "uid":      next(counter),
+            "shape_id": shape_id,
+            "label":    label,
+            "children": children,
+        }
+
+    outline: list[dict] = []
+    for child, child_label in _child_refs(by_shape.get(MARVA_ROOT_SHAPE, [])):
+        outline.append(
+            _build(child, child_label, frozenset({MARVA_ROOT_SHAPE, child}), 1)
+        )
+    return outline
+
+
 # ── public, source-aware API ──────────────────────────────────────────────────
 
 async def fetch_templates(source: str) -> list[dict]:
@@ -172,3 +251,8 @@ async def fetch_tsv_content(source: str, filename: str) -> str | None:
     if source == MARVA_SOURCE:
         return _marva_shape_tsv(await _fetch_csv(), filename)
     return await _bf_interop_content(source, filename)
+
+
+async def fetch_marva_outline() -> list[dict]:
+    """Return the marva-profiles starting-point outline (see :func:`_marva_outline`)."""
+    return _marva_outline(await _fetch_csv())

@@ -20,7 +20,12 @@ from sinopia.config import (
     PLUGIN_DIR,
     SINOPIA_VERSION,
 )
-from sinopia.dctap import MARVA_SOURCE, fetch_templates, fetch_tsv_content
+from sinopia.dctap import (
+    MARVA_SOURCE,
+    fetch_marva_outline,
+    fetch_templates,
+    fetch_tsv_content,
+)
 from sinopia.loc import _parse_loc_feed
 from sinopia.rdf import _detect_format, _parse_rdf, _shacl_violations
 
@@ -62,10 +67,10 @@ async def resource_templates(request: Request):
         except Exception as exc:
             fetch_error = f"Could not load templates ({BF_INTEROP_VERSION}): {exc}"
 
-    marva_list: list[dict] = []
+    marva_outline: list[dict] = []
     marva_error: str | None = None
     try:
-        marva_list = await fetch_templates(MARVA_SOURCE)
+        marva_outline = await fetch_marva_outline()
     except Exception as exc:
         marva_error = f"Could not load marva-profiles templates: {exc}"
 
@@ -78,7 +83,7 @@ async def resource_templates(request: Request):
             "templates":          rt_list,
             "bf_interop_version": BF_INTEROP_VERSION,
             "fetch_error":        fetch_error,
-            "marva_templates":    marva_list,
+            "marva_outline":      marva_outline,
             "marva_source":       MARVA_SOURCE,
             "marva_error":        marva_error,
         },
